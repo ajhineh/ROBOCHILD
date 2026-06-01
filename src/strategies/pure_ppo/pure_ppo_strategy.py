@@ -21,7 +21,7 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 
-class ActivePPOTrade(TypedDict):
+class ActivePPOTrade(TypedDict, total=False):
     symbol: str
     side: Literal["long", "short"]
     entry_price: float
@@ -29,6 +29,9 @@ class ActivePPOTrade(TypedDict):
     leverage: int
     sl: float
     tp: float
+    tp1: float
+    tp2: float
+    tp1_hit: bool
     timestamp: int
     status: Literal["pending", "filled"]
     diagnostic_report: Optional[dict]
@@ -314,12 +317,15 @@ class PurePPOStrategy:
         # ۳. محاسبه تارگت‌ها بر مبنای BPS تنظیم شده در پیکربندی پروژه
         tp_ratio = Config.TAKE_PROFIT_BPS / 10000.0
         sl_ratio = Config.STOP_LOSS_BPS / 10000.0
+        tp1_ratio = (Config.STOP_LOSS_BPS * 1.5) / 10000.0 # TP1 is 1.5x risk
 
         if side == "long":
-            tp = price * (1 + tp_ratio)
+            tp1 = price * (1 + tp1_ratio)
+            tp2 = price * (1 + tp_ratio)
             sl = price * (1 - sl_ratio)
         else:
-            tp = price * (1 - tp_ratio)
+            tp1 = price * (1 - tp1_ratio)
+            tp2 = price * (1 - tp_ratio)
             sl = price * (1 + sl_ratio)
 
         # ۴. ایجاد پوزیشن در حالت pending
@@ -330,7 +336,10 @@ class PurePPOStrategy:
             "amount": amount_usdt,
             "leverage": leverage,
             "sl": sl,
-            "tp": tp,
+            "tp": tp2,
+            "tp1": tp1,
+            "tp2": tp2,
+            "tp1_hit": False,
             "timestamp": timestamp,
             "status": "pending",
             "diagnostic_report": None
@@ -350,7 +359,7 @@ class PurePPOStrategy:
                     "entry_price_usdt": price,
                     "amount": amount_usdt,
                     "leverage": leverage,
-                    "take_profit_quote": tp,
+                    "take_profit_quote": tp2,
                     "stop_loss_quote": sl,
                     "timestamp": timestamp,
                     "is_yoyo": True,  # جهت تطبیق کامل با معماری کالبک بدون تغییر main
@@ -373,32 +382,92 @@ class PurePPOStrategy:
                 logger.info(f"💥 PPO SHORT Limit Filled for {symbol} at ${trade['entry_price']:.6f}!")
             return
 
-        # خروج بر اساس حد ضرر (SL)
-        if trade["side"] == "long" and price <= trade["sl"]:
+        # ۱. بررسی لمس حد سود اول (TP1) و تبدیل به ریسک‌فری (Break-Even) تعدیل شده با کارمزد
+        tp1 = trade.get("tp1", trade["tp"])
+        tp2 = trade.get("tp2", trade["tp"])
+        tp1_hit = trade.get("tp1_hit", False)
+
+        if not tp1_hit:
+            # بررسی لمس TP1 برای خروج ۵۰٪ حجم
+            if (trade["side"] == "long" and price >= tp1) or (trade["side"] == "short" and price <= tp1):
+                half_amount = trade["amount"] * 0.5
+                pnl_pct = ((tp1 - trade["entry_price"]) / trade["entry_price"]) * 100 * trade["leverage"]
+                if trade["side"] == "short":
+                    pnl_pct = -pnl_pct
+                
+                # محاسبه سود تتر
+                pnl_usdt = half_amount * (pnl_pct / 100.0)
+                
+                logger.info(f"🎯 TP1 Hit for {symbol} | Exiting 50% volume | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
+                
+                # بروزرسانی حجم باقی‌مانده و پرچم TP1
+                trade["amount"] = half_amount
+                trade["tp1_hit"] = True
+                
+                # انتقال حد ضرر (SL) به نقطه ورود واقعی تعدیل شده با کارمزد رفت و برگشت (0.08% برای 2 * 0.04% صرافی)
+                fee_rate = 0.0004
+                round_trip_fee = 2.0 * fee_rate
+                if trade["side"] == "long":
+                    trade["sl"] = trade["entry_price"] * (1.0 + round_trip_fee)
+                else:
+                    trade["sl"] = trade["entry_price"] * (1.0 - round_trip_fee)
+                
+                logger.info(f"🛡️ SL moved to Fee-Adjusted Break-Even for remaining 50% volume at ${trade['sl']:.6f}")
+                
+                # ثبت رویداد خروج پله‌ای در تاریخچه محلی
+                self.log_signal({
+                    "symbol": symbol,
+                    "type": "SELL_EXIT" if trade["side"] == "long" else "BUY_EXIT",
+                    "price": tp1,
+                    "time": int(now / 1000),
+                    "exitReason": "TP1",
+                    "fullyExited": False,
+                    "pnl": pnl_usdt,
+                    "strategy": "PurePPOStrategy",
+                    "diagnostic_report": trade.get("diagnostic_report")
+                })
+                
+                # بروزرسانی آمارهای معاملاتی برای خروج پله‌ای اول
+                stats = self.history["stats"]
+                stats["totalTrades"] += 1
+                if pnl_usdt > 0:
+                    stats["wins"] += 1
+                else:
+                    stats["losses"] += 1
+                stats["totalPnL"] = stats.get("totalPnL", 0.0) + pnl_usdt
+                self.save_history()
+
+                # فراخوانی کالبک خروج صرافی برای ۵۰٪ پوزیشن
+                if self.on_exit_callback:
+                    try:
+                        self.on_exit_callback(symbol, trade, tp1, pnl_usdt, "TP1")
+                    except Exception as e:
+                        logger.error(f"Error in PPO TP1 callback: {e}")
+                
+                return
+
+        # ۲. بررسی حد ضرر (SL یا BE)
+        if (trade["side"] == "long" and price <= trade["sl"]) or (trade["side"] == "short" and price >= trade["sl"]):
             pnl_pct = ((trade["sl"] - trade["entry_price"]) / trade["entry_price"]) * 100 * trade["leverage"]
+            if trade["side"] == "short":
+                pnl_pct = -pnl_pct
+            
             pnl_usdt = trade["amount"] * (pnl_pct / 100.0)
-            logger.info(f"🚪 EXIT (Stop-Loss) PPO LONG for {symbol} | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
-            self._close_ppo_position(symbol, trade, price, pnl_usdt, "SL", now)
-            return
-        elif trade["side"] == "short" and price >= trade["sl"]:
-            pnl_pct = ((trade["entry_price"] - trade["sl"]) / trade["entry_price"]) * 100 * trade["leverage"]
-            pnl_usdt = trade["amount"] * (pnl_pct / 100.0)
-            logger.info(f"🚪 EXIT (Stop-Loss) PPO SHORT for {symbol} | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
-            self._close_ppo_position(symbol, trade, price, pnl_usdt, "SL", now)
+            exit_reason = "BE" if tp1_hit else "SL"
+            
+            logger.info(f"🚪 EXIT ({exit_reason}) PPO {trade['side'].upper()} for {symbol} at ${price:.6f} | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
+            self._close_ppo_position(symbol, trade, price, pnl_usdt, exit_reason, now)
             return
 
-        # خروج بر اساس حد سود (TP)
-        if trade["side"] == "long" and price >= trade["tp"]:
-            pnl_pct = ((trade["tp"] - trade["entry_price"]) / trade["entry_price"]) * 100 * trade["leverage"]
+        # ۳. بررسی حد سود نهایی (TP2 یا همان TP اصلی)
+        if (trade["side"] == "long" and price >= tp2) or (trade["side"] == "short" and price <= tp2):
+            pnl_pct = ((tp2 - trade["entry_price"]) / trade["entry_price"]) * 100 * trade["leverage"]
+            if trade["side"] == "short":
+                pnl_pct = -pnl_pct
+                
             pnl_usdt = trade["amount"] * (pnl_pct / 100.0)
-            logger.info(f"🚪 EXIT (Take-Profit) PPO LONG for {symbol} | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
-            self._close_ppo_position(symbol, trade, price, pnl_usdt, "TP", now)
-            return
-        elif trade["side"] == "short" and price <= trade["tp"]:
-            pnl_pct = ((trade["entry_price"] - trade["tp"]) / trade["entry_price"]) * 100 * trade["leverage"]
-            pnl_usdt = trade["amount"] * (pnl_pct / 100.0)
-            logger.info(f"🚪 EXIT (Take-Profit) PPO SHORT for {symbol} | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
-            self._close_ppo_position(symbol, trade, price, pnl_usdt, "TP", now)
+            logger.info(f"🚪 EXIT (Take-Profit 2) PPO {trade['side'].upper()} for {symbol} at ${price:.6f} | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
+            self._close_ppo_position(symbol, trade, price, pnl_usdt, "TP2" if tp1_hit else "TP", now)
             return
 
     def _cancel_trade(self, symbol: str, now: int) -> None:

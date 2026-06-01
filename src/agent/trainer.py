@@ -92,6 +92,13 @@ class ProgressCallback(BaseCallback):
             pass
 
 
+def lr_schedule(progress_remaining: float) -> float:
+    """Linear learning rate schedule from 3e-4 to 5e-5."""
+    initial_lr = 3e-4
+    final_lr = 5e-5
+    return final_lr + (initial_lr - final_lr) * progress_remaining
+
+
 def train_agent(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
@@ -137,13 +144,13 @@ def train_agent(
     val_env.training = False # Turn off updates for evaluation env
     
     # 2. Setup agent policy & hyperparameters
-    # Pre-tuned stable parameters for noisy trading environments
+    # Optimized parameters for high-frequency trading with long-term trend awareness (gamma=0.98)
     hyperparams = {
-        "learning_rate": 3e-5,
+        "learning_rate": lr_schedule,
         "n_steps": 2048,
-        "batch_size": 64,
+        "batch_size": 128,
         "n_epochs": 10,
-        "gamma": 0.99,
+        "gamma": 0.98,
         "gae_lambda": 0.95,
         "clip_range": 0.2,
         "ent_coef": 0.01, # encourage exploration
@@ -154,19 +161,29 @@ def train_agent(
     }
     
     if USING_RECURRENT:
-        # LSTM specific policy network
+        # LSTM specific policy network with shared memory & 128 units
         policy = "MlpLstmPolicy"
+        policy_kwargs = dict(
+            lstm_hidden_size=128,
+            n_lstm_layers=1,
+            shared_lstm=True,
+            net_arch=dict(pi=[64, 64], vf=[64, 64])
+        )
         model = RecurrentPPO(
             policy,
             train_env,
-            policy_kwargs=dict(lstm_hidden_size=64, n_lstm_layers=1),
+            policy_kwargs=policy_kwargs,
             **hyperparams
         )
     else:
         policy = "MlpPolicy"
+        policy_kwargs = dict(
+            net_arch=dict(pi=[64, 64], vf=[64, 64])
+        )
         model = PPO(
             policy,
             train_env,
+            policy_kwargs=policy_kwargs,
             **hyperparams
         )
         

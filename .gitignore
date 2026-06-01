@@ -1,9 +1,9 @@
 # Environments & Sensitive Configurations
 .env
-venv/
-.venv/
-env/
-.env/
+/venv/
+/.venv/
+/env/
+/.env/
 
 # Python Cache
 __pycache__/

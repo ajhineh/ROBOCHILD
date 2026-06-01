@@ -27,17 +27,17 @@ class DummyEnvForVecNormalize(gym.Env):
     def __init__(self):
         super().__init__()
         self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(12,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(12,), dtype=np.float64
         )
         self.action_space = gym.spaces.Box(
-            low=-1.0, high=1.0, shape=(1,), dtype=np.float32
+            low=-1.0, high=1.0, shape=(1,), dtype=np.float64
         )
 
     def reset(self, seed=None, options=None):
-        return np.zeros(12, dtype=np.float32), {}
+        return np.zeros(12, dtype=np.float64), {}
 
     def step(self, action):
-        return np.zeros(12, dtype=np.float32), 0.0, False, False, {}
+        return np.zeros(12, dtype=np.float64), 0.0, False, False, {}
 
 
 class RLModelLoader:

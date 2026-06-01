@@ -75,7 +75,7 @@ class RLStateParser:
                 sentiment,            # 9: Market sentiment
                 0.0,                  # 10: Surprise (default 0)
                 volatility_ratio      # 11: Volatility ratio
-            ], dtype=np.float32)
+            ], dtype=np.float64)
             
             # محدودسازی مقادیر جهت جلوگیری از ورود اعداد نامعتبر (NaN/Inf)
             obs = np.nan_to_num(obs, nan=0.0, posinf=10.0, neginf=-10.0)
@@ -83,4 +83,4 @@ class RLStateParser:
             
         except Exception as e:
             logger.error(f"Error parsing market state for {symbol}: {e}")
-            return np.zeros(12, dtype=np.float32)
+            return np.zeros(12, dtype=np.float64)
