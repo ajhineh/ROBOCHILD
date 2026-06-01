@@ -1,0 +1,35 @@
+# Environments & Sensitive Configurations
+.env
+venv/
+.venv/
+env/
+.env/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest / Cache
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local Logs
+*.log
+roborder_x.log
+
+# History & Local Data
+microtick_history.json
+test_ppo_history.json
+test_ppo_history.json.bak
+
+# IDEs & System Files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.DS_Store
+Thumbs.db
