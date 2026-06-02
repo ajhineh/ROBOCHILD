@@ -199,6 +199,20 @@ async def display_status_loop(engine: HybridEngine, executor: OrderExecutor):
                 await asyncio.sleep(2)
 
 
+async def macro_news_sync_loop():
+    """تسک پس‌زمینه جهت به‌روزرسانی خودکار تقویم اقتصادی اخبار ماکرو به صورت روزانه"""
+    from src.core.macro_news_updater import update_macro_news_file
+    while True:
+        try:
+            logger.info("📅 Running scheduled economic calendar update (Macro News Sync)...")
+            await asyncio.get_event_loop().run_in_executor(None, update_macro_news_file)
+        except Exception as e:
+            logger.error(f"Error in macro news sync task: {e}")
+            
+        # هر ۲۴ ساعت یکبار اجرا می‌شود (86400 ثانیه)
+        await asyncio.sleep(86400)
+
+
 async def main():
     logger.info("==========================================================")
     logger.info("       🚀 Welcome to ROBORDER-X Production Engine 🚀       ")
@@ -326,7 +340,8 @@ async def main():
             watch_tickers_task(exchange, Config.SYMBOLS, engine),
             watch_trades_task(exchange, Config.SYMBOLS, engine),
             watch_order_books_task(exchange, Config.SYMBOLS, engine),
-            display_status_loop(engine, executor)
+            display_status_loop(engine, executor),
+            macro_news_sync_loop()
         ]
         
         # در صورتی که تسک یویو فعال است، آن را به لوپ ناظر موازی اضافه کن تا روشن بماند
