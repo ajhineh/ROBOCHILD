@@ -128,6 +128,49 @@ class TestOrderExecutor(unittest.TestCase):
         )
         self.assertEqual(self.executor.current_drawdown, 0.0)
 
+    def test_partial_exit_dynamic_pct_and_stats(self):
+        """بررسی صحت اجرای خروج پله‌ای با درصد پویا و عدم حذف پوزیشن تا خروج نهایی"""
+        from src.config import Config
+        old_tp1_exit_pct = Config.TP1_EXIT_PCT
+        Config.TP1_EXIT_PCT = 40.0 # ۴۰ درصد خروج در TP1
+
+        try:
+            symbol = "POPCAT/USDT:USDT"
+            initial_balance = Config.CURRENT_BALANCE
+
+            # باز کردن موقعیت تستی با ارزش ۱۰۰ تتر
+            self.loop.run_until_complete(
+                self.executor.execute_entry(symbol, "long", 100.0, 10, 1.02, 0.99)
+            )
+
+            # خروج پله‌ای اول با دلیل TP1 و سود ۵ دلار
+            success = self.loop.run_until_complete(
+                self.executor.execute_exit(symbol, pnl_usdt=5.0, reason="TP1")
+            )
+
+            self.assertTrue(success)
+            # پوزیشن نباید از لیست پوزیشن‌های فعال حذف شده باشد
+            self.assertIn(symbol, self.executor.open_positions)
+            
+            pos = self.executor.open_positions[symbol]
+            # حجم و مارجین باید به میزان ۶۰ درصد باقیمانده باشد (۱۰۰ * ۰.۶ = ۶۰ دلار)
+            self.assertAlmostEqual(pos["amount"], 60.0)
+            # بالانس باید ۵ دلار سود را منظور کرده باشد
+            self.assertAlmostEqual(Config.CURRENT_BALANCE, initial_balance + 5.0)
+
+            # خروج نهایی با دلیل TP2 و سود ۸ دلار
+            success = self.loop.run_until_complete(
+                self.executor.execute_exit(symbol, pnl_usdt=8.0, reason="TP2")
+            )
+
+            self.assertTrue(success)
+            # پوزیشن اکنون باید کاملاً بسته شده باشد
+            self.assertNotIn(symbol, self.executor.open_positions)
+            # بالانس کل باید ۱۳ دلار سود را در کل منظور کرده باشد
+            self.assertAlmostEqual(Config.CURRENT_BALANCE, initial_balance + 13.0)
+        finally:
+            Config.TP1_EXIT_PCT = old_tp1_exit_pct
+
 
 if __name__ == "__main__":
     unittest.main()

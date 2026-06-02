@@ -201,19 +201,126 @@ class OrderExecutor:
 
         logger.info(f"⚡ Initiating exit order for {symbol} | Reason: {reason} | Expected PnL: ${pnl_usdt:+.4f} USDT")
 
-        # ۱. سناریو ترید زنده روی صرافی
+        from src.config import Config, save_env_values
+        is_partial = (reason == "TP1")
+        tp1_exit_fraction = getattr(Config, "TP1_EXIT_PCT", 50.0) / 100.0
+
+        # ۱. سناریو ترید زنده روی صرافی با پیاده‌سازی تعقیب لیمیت PostOnly و فالبک اضطراری به مارکت اردر
         if self.live_trading and self.exchange:
             try:
-                # سفارش برعکس جهت ورود برای بستن پوزیشن
                 exit_side = "sell" if position["side"] == "long" else "buy"
                 token_amount = position["token_amount"]
+                if is_partial:
+                    token_amount *= tp1_exit_fraction
 
-                logger.info(f"🛒 Sending Exit Market Order to Exchange: {exit_side.upper()} {token_amount:.4f} {symbol}")
-                order = await self.exchange.create_market_order(symbol, exit_side, token_amount)
-                logger.info(f"🎉 Position Closed on Exchange. Exit Order ID: {order['id']}")
+                logger.info(f"🛒 Initiating PostOnly Limit Exit for {symbol} | Amount: {token_amount:.4f}")
+                
+                # دریافت قیمت بهترین بید/اسک جهت قرارگیری به صورت Maker
+                ticker = await self.exchange.fetch_ticker(symbol)
+                limit_price = ticker['bid'] if exit_side == "sell" else ticker['ask']
+                
+                # ثبت سفارش لیمیت PostOnly اول
+                order = await self.exchange.create_limit_order(
+                    symbol=symbol,
+                    side=exit_side,
+                    amount=token_amount,
+                    price=limit_price,
+                    params={"postOnly": True}
+                )
+                order_id = order['id']
+                logger.info(f"⚡ Placed initial PostOnly Limit Exit order {order_id} at ${limit_price:.6f}")
+
+                # شروع لوپ تعقیب سفارش (Order Chasing) برای مدت حداکثر ۱۰ ثانیه
+                start_time = asyncio.get_event_loop().time()
+                chase_timeout = 10.0
+                poll_interval = 2.0
+                is_filled = False
+
+                while (asyncio.get_event_loop().time() - start_time) < chase_timeout:
+                    await asyncio.sleep(poll_interval)
+                    
+                    # بررسی وضعیت سفارش در صرافی
+                    try:
+                        order_status = await self.exchange.fetch_order(order_id, symbol)
+                        status = order_status.get('status')
+                        filled_amount = order_status.get('filled', 0.0)
+                        remaining_amount = token_amount - filled_amount
+                        
+                        if status == 'closed' or remaining_amount <= 0:
+                            logger.info(f"🎉 Limit Exit order {order_id} fully filled!")
+                            is_filled = True
+                            break
+                        
+                        # اگر سفارش به دلیلی لغو شد (مانند رد شدن توسط postOnly)، سفارش لیمیت جدید ثبت می‌شود
+                        if status == 'canceled':
+                            logger.warning(f"⚠️ Order {order_id} was canceled. Re-submitting limit order...")
+                            ticker = await self.exchange.fetch_ticker(symbol)
+                            limit_price = ticker['bid'] if exit_side == "sell" else ticker['ask']
+                            order = await self.exchange.create_limit_order(
+                                symbol=symbol,
+                                side=exit_side,
+                                amount=remaining_amount,
+                                price=limit_price,
+                                params={"postOnly": True}
+                            )
+                            order_id = order['id']
+                            continue
+                            
+                    except Exception as e:
+                        logger.error(f"Error polling order {order_id}: {e}")
+                        continue
+                        
+                    # بررسی تغییر بید/اسک مارکت و تعقیب قیمت (Chasing)
+                    ticker = await self.exchange.fetch_ticker(symbol)
+                    current_market_price = ticker['bid'] if exit_side == "sell" else ticker['ask']
+                    
+                    # اگر قیمت مارکت جابجا شده باشد
+                    if current_market_price != limit_price:
+                        logger.info(f"🔄 Price moved from ${limit_price:.6f} to ${current_market_price:.6f}. Chasing order...")
+                        try:
+                            # لغو سفارش قبلی
+                            await self.exchange.cancel_order(order_id, symbol)
+                        except Exception as cancel_err:
+                            logger.warning(f"Failed to cancel order {order_id}: {cancel_err}")
+                        
+                        # قرار دادن سفارش جدید روی قیمت جدید
+                        limit_price = current_market_price
+                        try:
+                            order = await self.exchange.create_limit_order(
+                                symbol=symbol,
+                                side=exit_side,
+                                amount=remaining_amount,
+                                price=limit_price,
+                                params={"postOnly": True}
+                            )
+                            order_id = order['id']
+                            logger.info(f"⚡ Re-placed PostOnly Limit Exit order {order_id} at ${limit_price:.6f}")
+                        except Exception as place_err:
+                            logger.error(f"Failed to place chased order: {place_err}")
+
+                # ۴. فالبک اضطراری به سفارش مارکت در صورت عدم پر شدن پس از ۱۰ ثانیه
+                if not is_filled:
+                    logger.warning(f"🚨 Limit Exit Chase timed out after {chase_timeout}s! Executing Emergency Market Fallback...")
+                    try:
+                        # تلاش برای لغو سفارش لیمیت باز باقیمانده
+                        await self.exchange.cancel_order(order_id, symbol)
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel final limit order {order_id}: {e}")
+                    
+                    # استعلام آخرین مانده پر نشده سفارش
+                    try:
+                        order_status = await self.exchange.fetch_order(order_id, symbol)
+                        remaining_amount = token_amount - order_status.get('filled', 0.0)
+                    except Exception:
+                        remaining_amount = token_amount # فالبک در صورت خطا
+                    
+                    if remaining_amount > 0:
+                        logger.info(f"🛒 Sending Emergency Market Exit Order: {exit_side.upper()} {remaining_amount:.4f} {symbol}")
+                        order = await self.exchange.create_market_order(symbol, exit_side, remaining_amount)
+                        logger.info(f"🎉 Emergency Market Exit executed. Order ID: {order['id']}")
 
             except Exception as e:
-                logger.error(f"❌ Exchange Exit Order Failed: {e}. Positions will be forcefully closed locally.")
+                logger.error(f"❌ Exchange Exit Order Pipeline Failed: {e}. Positions will be forcefully closed locally.")
 
         # ۲. اعمال تغییرات سود و ضرر در ردیاب دروداون روزانه بر اساس کل سود/زیان خالص روزانه
         self.daily_pnl += pnl_usdt
@@ -223,14 +330,19 @@ class OrderExecutor:
             self.current_drawdown = abs(self.daily_pnl)
 
         # به‌روزرسانی و ذخیره‌سازی ماندگار موجودی کل حساب (CURRENT_BALANCE)
-        from src.config import Config, save_env_values
         new_balance = Config.CURRENT_BALANCE + pnl_usdt
         Config.CURRENT_BALANCE = new_balance
         save_env_values({"CURRENT_BALANCE": f"{new_balance:.4f}"})
 
-        # پاک‌سازی موقعیت از حافظه محلی
-        if symbol in self.open_positions:
-            del self.open_positions[symbol]
+        # به‌روزرسانی یا پاک‌سازی موقعیت از حافظه محلی
+        if is_partial:
+            if symbol in self.open_positions:
+                self.open_positions[symbol]["amount"] *= (1.0 - tp1_exit_fraction)
+                self.open_positions[symbol]["token_amount"] *= (1.0 - tp1_exit_fraction)
+            logger.info(f"🛡️ Position for {symbol} partially closed ({getattr(Config, 'TP1_EXIT_PCT', 50.0)}%). Remaining amount: ${self.open_positions[symbol]['amount']:.2f}")
+        else:
+            if symbol in self.open_positions:
+                del self.open_positions[symbol]
+            logger.info(f"🚪 Position Fully Closed for {symbol}. Current Daily Drawdown: ${self.current_drawdown:.2f} | New Balance: ${new_balance:.4f}")
 
-        logger.info(f"🚪 Position Closed for {symbol}. Current Daily Drawdown: ${self.current_drawdown:.2f} | New Balance: ${new_balance:.4f}")
         return True

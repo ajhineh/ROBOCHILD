@@ -2226,6 +2226,7 @@
                 if (isExit) {
                     const symbol = s.symbol;
                     let matchingEntry = null;
+                    let entryIndex = -1;
 
                     // Search backward for the closest unmatched preceding entry for this symbol
                     for (let j = i - 1; j >= 0; j--) {
@@ -2239,6 +2240,7 @@
 
                         if (isEntry && entryCandidate.symbol === symbol && !matchedEntries.has(j) && sideMatches) {
                             matchingEntry = entryCandidate;
+                            entryIndex = j;
                             const fullyExited = s.fullyExited !== false;
                             if (fullyExited) {
                                 matchedEntries.add(j);
@@ -2261,22 +2263,28 @@
                             time: s.time - 300,
                             strategy: s.strategy || "PurePPOStrategy"
                         };
+                        entryIndex = -1 - i; // assign unique fake entryIndex for un-matched exits
                     }
 
-                    if (matchingEntry) {
-                        let pnl = s.pnl;
-                        if (pnl === undefined) {
-                            const entryPrice = matchingEntry.price;
-                            const exitPrice = s.price;
-                            const side = matchingEntry.type === "BUY" ? "long" : "short";
-                            const leverage = matchingEntry.leverage || 10;
-                            const pct = side === "long" ?
-                                ((exitPrice - entryPrice) / entryPrice) * 100 * leverage :
-                                ((entryPrice - exitPrice) / entryPrice) * 100 * leverage;
-                            pnl = 100.0 * (pct / 100.0);
-                        }
+                    let pnl = s.pnl;
+                    if (pnl === undefined) {
+                        const entryPrice = matchingEntry.price;
+                        const exitPrice = s.price;
+                        const side = matchingEntry.type === "BUY" ? "long" : "short";
+                        const leverage = matchingEntry.leverage || 10;
+                        const pct = side === "long" ?
+                            ((exitPrice - entryPrice) / entryPrice) * 100 * leverage :
+                            ((entryPrice - exitPrice) / entryPrice) * 100 * leverage;
+                        pnl = 100.0 * (pct / 100.0);
+                    }
 
+                    const fullyExited = s.fullyExited !== false;
+
+                    if (!fullyExited) {
+                        // This is a partial exit (TP1)
                         completedTrades.push({
+                            entryIndex: entryIndex,
+                            partial: true,
                             symbol: symbol,
                             side: matchingEntry.type === "BUY" ? "LONG" : "SHORT",
                             strategy: matchingEntry.strategy || "YoYoStrategy",
@@ -2286,9 +2294,37 @@
                             exitPrice: s.price,
                             leverage: matchingEntry.leverage || 10,
                             pnl: pnl,
-                            exitReason: s.exitReason || "TP",
+                            exitReason: s.exitReason || "TP1",
                             diagnostic_report: s.diagnostic_report || matchingEntry.diagnostic_report || null
                         });
+                    } else {
+                        // This is a final exit (TP2, BE, SL, etc.)
+                        // Check if we have an existing partial trade for this entry
+                        let existingPartial = entryIndex >= 0 ? completedTrades.find(t => t.entryIndex === entryIndex && t.partial) : null;
+                        if (existingPartial) {
+                            // Update the existing partial trade
+                            existingPartial.pnl += pnl;
+                            existingPartial.exitTime = s.time;
+                            existingPartial.exitPrice = s.price;
+                            existingPartial.exitReason = existingPartial.exitReason + " + " + (s.exitReason || "TP2");
+                            delete existingPartial.partial;
+                        } else {
+                            // Create a new completed trade normally
+                            completedTrades.push({
+                                entryIndex: entryIndex,
+                                symbol: symbol,
+                                side: matchingEntry.type === "BUY" ? "LONG" : "SHORT",
+                                strategy: matchingEntry.strategy || "YoYoStrategy",
+                                entryTime: matchingEntry.time,
+                                exitTime: s.time,
+                                entryPrice: matchingEntry.price,
+                                exitPrice: s.price,
+                                leverage: matchingEntry.leverage || 10,
+                                pnl: pnl,
+                                exitReason: s.exitReason || "TP",
+                                diagnostic_report: s.diagnostic_report || matchingEntry.diagnostic_report || null
+                            });
+                        }
                     }
                 }
             }

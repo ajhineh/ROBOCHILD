@@ -295,11 +295,15 @@ class PurePPOStrategy:
             if random.random() < 0.01:
                 action_ratio = random.choice([0.8, -0.8])
 
-        # ۷. ارزیابی حد آستانه ورود سیگنال (Trigger Threshold)
-        # هر اکشنی که قدر مطلق آن بالای ۰.۲۵ باشد به عنوان سیگنال ورود تعبیر می‌شود
-        if abs(action_ratio) >= 0.25:
-            side: Literal["long", "short"] = "long" if action_ratio > 0 else "short"
-            await self._trigger_ppo_trade(symbol, price, side, action_ratio, now)
+        # ۷. ارزیابی حد آستانه ورود سیگنال (Trigger Threshold) با تضمین استفاده از خروجی مستقیم مدل بدون Bias Shifter
+        adjusted_action = action_ratio
+        
+        # بالا بردن حد آستانه ورود به ۰.۶۰ برای POPCAT و BOME جهت فیلتر کردن کامل نویزها و کارمزدهای ریز
+        threshold = 0.60 if symbol in ["POPCAT/USDT:USDT", "BOME/USDT:USDT"] else 0.25
+        
+        if abs(adjusted_action) >= threshold:
+            side: Literal["long", "short"] = "long" if adjusted_action > 0 else "short"
+            await self._trigger_ppo_trade(symbol, price, side, adjusted_action, now)
 
     async def _trigger_ppo_trade(
         self,
@@ -407,20 +411,23 @@ class PurePPOStrategy:
         tp1_hit = trade.get("tp1_hit", False)
 
         if not tp1_hit:
-            # بررسی لمس TP1 برای خروج ۵۰٪ حجم
+            # بررسی لمس TP1 برای خروج حجم تنظیم‌شده
             if (trade["side"] == "long" and price >= tp1) or (trade["side"] == "short" and price <= tp1):
-                half_amount = trade["amount"] * 0.5
+                tp1_exit_fraction = getattr(Config, "TP1_EXIT_PCT", 50.0) / 100.0
+                exit_amount = trade["amount"] * tp1_exit_fraction
+                remaining_amount = trade["amount"] * (1.0 - tp1_exit_fraction)
+                
                 pnl_pct = ((tp1 - trade["entry_price"]) / trade["entry_price"]) * 100 * trade["leverage"]
                 if trade["side"] == "short":
                     pnl_pct = -pnl_pct
                 
                 # محاسبه سود تتر
-                pnl_usdt = half_amount * (pnl_pct / 100.0)
+                pnl_usdt = exit_amount * (pnl_pct / 100.0)
                 
-                logger.info(f"🎯 TP1 Hit for {symbol} | Exiting 50% volume | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
+                logger.info(f"🎯 TP1 Hit for {symbol} | Exiting {getattr(Config, 'TP1_EXIT_PCT', 50.0)}% volume | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
                 
                 # بروزرسانی حجم باقی‌مانده و پرچم TP1
-                trade["amount"] = half_amount
+                trade["amount"] = remaining_amount
                 trade["tp1_hit"] = True
                 
                 # انتقال حد ضرر (SL) به نقطه ورود واقعی تعدیل شده با کارمزد رفت و برگشت (0.08% برای 2 * 0.04% صرافی)
@@ -431,7 +438,7 @@ class PurePPOStrategy:
                 else:
                     trade["sl"] = trade["entry_price"] * (1.0 - round_trip_fee)
                 
-                logger.info(f"🛡️ SL moved to Fee-Adjusted Break-Even for remaining 50% volume at ${trade['sl']:.6f}")
+                logger.info(f"🛡️ SL moved to Fee-Adjusted Break-Even for remaining volume at ${trade['sl']:.6f}")
                 
                 # ثبت رویداد خروج پله‌ای در تاریخچه محلی
                 self.log_signal({
@@ -532,11 +539,15 @@ class PurePPOStrategy:
 
         # بروزرسانی آمارهای معاملاتی
         stats = self.history["stats"]
-        stats["totalTrades"] += 1
-        if pnl_usdt > 0:
-            stats["wins"] += 1
-        else:
-            stats["losses"] += 1
+        is_second_stage = trade.get("tp1_hit", False)
+        
+        if not is_second_stage:
+            stats["totalTrades"] += 1
+            if pnl_usdt > 0:
+                stats["wins"] += 1
+            else:
+                stats["losses"] += 1
+                
         stats["totalPnL"] = stats.get("totalPnL", 0.0) + pnl_usdt
         self.save_history()
 
