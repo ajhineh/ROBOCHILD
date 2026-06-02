@@ -33,3 +33,7 @@ test_ppo_history.json.bak
 *.swp
 .DS_Store
 Thumbs.db
+
+# Neural Network Models & Training Logs
+/models/
+/tb_logs/
