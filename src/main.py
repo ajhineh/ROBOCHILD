@@ -16,7 +16,7 @@ if sys.stdout.encoding != 'utf-8':
 
 # تنظیم سطح لاگینگ کلی پروژه ROBORDER-X به صورت هوشمند و بدون خطای قطع ترمینال
 log_handlers = [
-    logging.FileHandler("roborder_x.log", encoding="utf-8")
+    logging.FileHandler("robochild_x.log", encoding="utf-8")
 ]
 
 # تنها در صورتی لاگ‌ها را به کنسول می‌فرستیم که ترمینال تعاملی (TTY) متصل باشد
@@ -227,7 +227,7 @@ async def main():
             current_cron = result.stdout or ""
             if "macro_news_updater.py" not in current_cron:
                 logger.info("🔧 Auto-configuring crontab for macro_news_updater.py...")
-                cron_cmd = '(crontab -l 2>/dev/null; echo "0 0 * * * /home/ubuntu/opt/ROBORDER/venv/bin/python /home/ubuntu/opt/ROBORDER/src/core/macro_news_updater.py >> /home/ubuntu/opt/ROBORDER/roborder_x.log 2>&1") | crontab -'
+                cron_cmd = '(crontab -l 2>/dev/null; echo "0 0 * * * /home/ubuntu/opt/ROBOCHILD/venv/bin/python /home/ubuntu/opt/ROBOCHILD/src/core/macro_news_updater.py >> /home/ubuntu/opt/ROBOCHILD/robochild_x.log 2>&1") | crontab -'
                 subprocess.run(cron_cmd, shell=True, check=True)
                 logger.info("✅ Crontab configured successfully!")
             else:

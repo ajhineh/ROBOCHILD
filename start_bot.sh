@@ -17,7 +17,7 @@ if netstat -ano 2>/dev/null | grep -q "LISTENING" | grep -q ":6006" || lsof -i :
     exit 0
 fi
 
-echo "[INFO] Starting ROBORDER-X in the background..."
+echo "[INFO] Starting ROBOCHILD in the background..."
 
 # Check OS type
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
@@ -45,7 +45,7 @@ else
     fi
     
     # Run in background detached with disown and stdin redirection
-    nohup "$PYTHON_BIN" -m src.main > roborder_x.log 2>&1 </dev/null & disown
+    nohup "$PYTHON_BIN" -m src.main > robochild_x.log 2>&1 </dev/null & disown
     sleep 3
     # تنها در صورتی مرورگر را باز کن که سرور دارای رابط گرافیکی باشد (نه سرور ابری AWS)
     if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then

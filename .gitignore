@@ -16,7 +16,7 @@ __pycache__/
 
 # Local Logs
 *.log
-roborder_x.log
+robochild_x.log
 
 # History & Local Data
 microtick_history.json
@@ -37,3 +37,6 @@ Thumbs.db
 # Neural Network Models & Training Logs
 /models/
 /tb_logs/
+
+# Local Scratch/Temp Directories
+/scratch/

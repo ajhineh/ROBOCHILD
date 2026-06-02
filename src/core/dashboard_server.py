@@ -74,7 +74,7 @@ def log_event(message: str):
     logger.info(f"📝 [Dashboard Log] {message}")
     # الحاق به فایل لاگ به عنوان رکورد متنی سراسری
     try:
-        with open("roborder_x.log", "a", encoding="utf-8") as f:
+        with open("robochild_x.log", "a", encoding="utf-8") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - ROBORDER.Dashboard - INFO - {message}\n")
     except Exception:
         pass
@@ -458,7 +458,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     def handle_api_logs(self):
         """ارسال ۱۰۰ خط نهایی فایل لاگ سراسری ربات به داشبورد"""
-        log_file = "roborder_x.log"
+        log_file = "robochild_x.log"
         logs = []
         if os.path.exists(log_file):
             try:
@@ -468,7 +468,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 logs = [f"Error reading log file: {e}"]
         else:
-            logs = ["Log file roborder_x.log does not exist yet. Feed some market tickers to start logging!"]
+            logs = ["Log file robochild_x.log does not exist yet. Feed some market tickers to start logging!"]
 
         self.send_json({"logs": logs})
 
