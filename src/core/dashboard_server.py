@@ -81,10 +81,10 @@ def log_event(message: str):
 
 
 def scan_existing_models():
-    """اسکن مدل‌های پایتون آموزش‌دیده موجود در پوشه models/robochild/"""
-    if not os.path.exists("models/robochild"):
-        os.makedirs("models/robochild", exist_ok=True)
-    models_dir = "models/robochild"
+    """اسکن مدل‌های پایتون آموزش‌دیده موجود در پوشه models/"""
+    if not os.path.exists("models"):
+        os.makedirs("models", exist_ok=True)
+    models_dir = "models"
     available = []
     try:
         for f in os.listdir(models_dir):
@@ -98,7 +98,7 @@ def scan_existing_models():
             elif f == "ppo_volume_bars_child_final.zip":
                 available.append("BTC/USDT")
     except Exception as e:
-        logger.error(f"Error scanning models/robochild directory: {e}")
+        logger.error(f"Error scanning models directory: {e}")
     return list(set(available))
 
 
@@ -119,8 +119,8 @@ def background_train_orchestrator(symbol: str, steps: int = 200000):
     log_event(f"🧠 شروع آموزش پس‌زمینه شبکه عصبی هوش مصنوعی برای {symbol}...")
     log_event(f"🧠 تخصیص تعداد {steps:,} گام روی تایم‌فریم {timeframe} ({days_back} روز داده تاریخی)")
 
-    progress_file = os.path.join("models/robochild", f"progress_ppo_volume_bars_child_{symbol_clean}.json")
-    os.makedirs("models/robochild", exist_ok=True)
+    progress_file = os.path.join("models", f"progress_ppo_volume_bars_child_{symbol_clean}.json")
+    os.makedirs("models", exist_ok=True)
     with open(progress_file, "w") as f:
         json.dump({
             "model_name": f"ppo_volume_bars_child_{symbol_clean}",
@@ -156,8 +156,8 @@ def background_train_orchestrator(symbol: str, steps: int = 200000):
             train_df=train_df,
             val_df=val_df,
             total_timesteps=steps,
-            model_save_dir="models/robochild",
-            tb_log_dir="tb_logs/robochild",
+            model_save_dir="models",
+            tb_log_dir="tb_logs",
             model_name=f"ppo_volume_bars_child_{symbol_clean}",
             check_stop_fn=check_stop
         )
@@ -443,17 +443,17 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
     def handle_api_training_status(self):
         """ارائه پیشرفت و جزئیات آموزش مدل‌ها"""
         progress_data = []
-        if os.path.exists("models/robochild"):
+        if os.path.exists("models"):
             try:
-                for f in os.listdir("models/robochild"):
+                for f in os.listdir("models"):
                     if f.startswith("progress_") and f.endswith(".json"):
                         try:
-                            with open(os.path.join("models/robochild", f), "r", encoding="utf-8") as pf:
+                            with open(os.path.join("models", f), "r", encoding="utf-8") as pf:
                                 progress_data.append(json.load(pf))
                         except Exception:
                             pass
             except Exception as e:
-                logger.error(f"Error listing models/robochild folder for progress: {e}")
+                logger.error(f"Error listing models folder for progress: {e}")
         self.send_json(progress_data)
 
     def handle_api_logs(self):
@@ -499,7 +499,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 return
                 
             symbol_clean = symbol.split('/')[0].lower()
-            model_file = f"models/robochild/ppo_volume_bars_child_{symbol_clean}_final.zip"
+            model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
             
             exists = os.path.exists(model_file)
             self.send_json({"exists": exists, "symbol": symbol})

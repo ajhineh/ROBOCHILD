@@ -103,8 +103,8 @@ def train_agent(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
     total_timesteps: int = 100000,
-    model_save_dir: str = "models/robochild",
-    tb_log_dir: str = "tb_logs/robochild",
+    model_save_dir: str = "models",
+    tb_log_dir: str = "tb_logs",
     model_name: str = "ppo_volume_bars_child",
     check_stop_fn = None
 ):
