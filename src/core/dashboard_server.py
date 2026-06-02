@@ -25,7 +25,7 @@ if not logger.handlers:
 global_engine = None
 global_executor = None
 global_loop = None  # رفرنس ایمن به حلقه اصلی asyncio جهت زمان‌بندی تسک‌ها از تردهای پس‌زمینه
-PORT = 3000
+PORT = 6006
 
 # رجیستری آموزش شبکه عصبی پس‌زمینه
 active_trainings = {}

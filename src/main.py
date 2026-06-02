@@ -261,7 +261,7 @@ async def main():
     # راه‌اندازی وب سرور داشبورد تعاملی در ترد پس‌زمینه مستقل
     # ارسال رفرنس حلقه اصلی asyncio جهت زمان‌بندی ایمن تسک‌ها از ترد HTTP
     _main_loop = asyncio.get_running_loop()
-    start_dashboard_server(engine, executor, port=3000, loop=_main_loop)
+    start_dashboard_server(engine, executor, port=6006, loop=_main_loop)
 
     # ۳. تعریف کالبک ناهمگام و اتصال خروجی‌های معتبر موتور هیبریدی به کلاینت صرافی
     async def handle_execute_entry(trade):
