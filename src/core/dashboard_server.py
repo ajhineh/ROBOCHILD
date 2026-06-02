@@ -1016,9 +1016,9 @@ def start_dashboard_server(engine, executor, port: int = 3000, loop=None) -> Non
 
     server_address = ('', PORT)
     try:
-        socketserver.TCPServer.allow_reuse_address = True
+        socketserver.ThreadingTCPServer.allow_reuse_address = True
         # ایجاد سوکت و بایند به صورت سنکرون در ترد اصلی جهت جلوگیری از اجرای همزمان دو ربات روی یک اکانت
-        httpd = socketserver.TCPServer(server_address, DashboardHandler)
+        httpd = socketserver.ThreadingTCPServer(server_address, DashboardHandler)
         logger.info(f"🌐 Interactive UI/UX Dashboard Server initialized on port {PORT}")
     except Exception as e:
         logger.critical(f"🚨 PORT BINDING FAILED: Port {PORT} is already in use by another active instance of ROBORDER!")
