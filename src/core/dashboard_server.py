@@ -137,8 +137,13 @@ def background_train_orchestrator(symbol: str, steps: int = 200000):
         def check_stop():
             return training_stops.get(symbol_clean, False)
 
-        # ۱. واکشی داده‌های واقعی
-        df = fetch_real_binance_data(symbol=symbol, timeframe=timeframe, days_back=days_back)
+        # ۱. واکشی داده‌های واقعی با قابلیت لغو سریع
+        df = fetch_real_binance_data(
+            symbol=symbol,
+            timeframe=timeframe,
+            days_back=days_back,
+            check_stop_fn=check_stop
+        )
 
         if check_stop():
             log_event(f"⏹️ فرآیند آموزش {symbol} قبل از استارت متوقف شد.")
@@ -181,15 +186,26 @@ def background_train_orchestrator(symbol: str, steps: int = 200000):
             }, f)
 
     except Exception as e:
-        log_event(f"❌ خطای بحرانی در آموزش مدل {symbol}: {e}")
-        with open(progress_file, "w") as f:
-            json.dump({
-                "model_name": f"ppo_futures_bot_{symbol_clean}",
-                "current_step": 0,
-                "total_steps": steps,
-                "percentage": 0.0,
-                "status": f"error: {str(e)}"
-            }, f)
+        if check_stop():
+            log_event(f"⏹️ فرآیند آموزش {symbol} با موفقیت متوقف شد.")
+            with open(progress_file, "w") as f:
+                json.dump({
+                    "model_name": f"ppo_volume_bars_child_{symbol_clean}",
+                    "current_step": 0,
+                    "total_steps": steps,
+                    "percentage": 0.0,
+                    "status": "stopped"
+                }, f)
+        else:
+            log_event(f"❌ خطای بحرانی در آموزش مدل {symbol}: {e}")
+            with open(progress_file, "w") as f:
+                json.dump({
+                    "model_name": f"ppo_volume_bars_child_{symbol_clean}",
+                    "current_step": 0,
+                    "total_steps": steps,
+                    "percentage": 0.0,
+                    "status": f"error: {str(e)}"
+                }, f)
     finally:
         active_trainings.pop(symbol_clean, None)
         training_stops.pop(symbol_clean, None)
@@ -377,7 +393,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
                 # بررسی مدل شبکه عصبی آموزش‌دیده
                 symbol_clean = sym.split('/')[0].lower()
-                has_model = os.path.exists(f"models/ppo_futures_bot_{symbol_clean}_final.zip")
+                has_model = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_final.zip")
 
                 bot_data = {
                     "symbol": sym,
@@ -608,7 +624,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             }, 400)
             return
 
-        model_file = f"models/ppo_futures_bot_{symbol_clean}_final.zip"
+        model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
 
         # ۱. در صورت وجود مدل آموزش‌دیده، فوراً ارز را در سیستم زنده ثبت و بازنشانی می‌کنیم
         if os.path.exists(model_file):
@@ -681,9 +697,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         if delete_model:
             # حذف فایل‌ها در صورت لزوم
-            model_zip = f"models/ppo_futures_bot_{symbol_clean}_final.zip"
-            model_pkl = f"models/ppo_futures_bot_{symbol_clean}_vec_normalize.pkl"
-            progress_json = f"models/progress_ppo_futures_bot_{symbol_clean}.json"
+            model_zip = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
+            model_pkl = f"models/ppo_volume_bars_child_{symbol_clean}_vec_normalize.pkl"
+            progress_json = f"models/progress_ppo_volume_bars_child_{symbol_clean}.json"
             
             for file_path in [model_zip, model_pkl, progress_json]:
                 if os.path.exists(file_path):

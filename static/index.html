@@ -2170,7 +2170,7 @@
 
         // Halt background training run
         async function haltTraining(modelName) {
-            const cleanSym = modelName.replace("ppo_futures_bot_", "").toUpperCase() + "/USDT:USDT";
+            const cleanSym = modelName.replace("ppo_futures_bot_", "").replace("ppo_volume_bars_child_", "").toUpperCase() + "/USDT:USDT";
             if (!confirm(`آیا از لغو فوری ترد آموزش شبکه عصبی برای ${cleanSym} اطمینان دارید؟`)) return;
             try {
                 const response = await fetch(`${API_BASE}/api/remove_symbol`, {

@@ -54,8 +54,8 @@ class RLModelLoader:
         symbol_clean = symbol.split('/')[0].lower()
         
         # ۱. پیدا کردن نام فایل‌های مدل و آمار
-        model_filename = f"ppo_futures_bot_{symbol_clean}_final.zip"
-        stats_filename = f"ppo_futures_bot_{symbol_clean}_vec_normalize.pkl"
+        model_filename = f"ppo_volume_bars_child_{symbol_clean}_final.zip"
+        stats_filename = f"ppo_volume_bars_child_{symbol_clean}_vec_normalize.pkl"
         
         model_path = os.path.join(self.models_dir, model_filename)
         stats_path = os.path.join(self.models_dir, stats_filename)
@@ -63,8 +63,8 @@ class RLModelLoader:
         # مسیر پشتیبان کلی در صورت عدم وجود مدل اختصاصی نماد
         if not os.path.exists(model_path):
             logger.warning(f"⚠️ Dedicated PPO model for {symbol} not found at {model_path}. Loading default model...")
-            model_path = os.path.join(self.models_dir, "ppo_futures_bot_final.zip")
-            stats_path = os.path.join(self.models_dir, "ppo_futures_bot_vec_normalize.pkl")
+            model_path = os.path.join(self.models_dir, "ppo_volume_bars_child_final.zip")
+            stats_path = os.path.join(self.models_dir, "ppo_volume_bars_child_vec_normalize.pkl")
             
         if not os.path.exists(model_path):
             logger.error(f"❌ Critical: PPO model file not found at {model_path}")

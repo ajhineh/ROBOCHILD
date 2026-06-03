@@ -100,7 +100,8 @@ def fetch_real_binance_data(
     symbol: str = "BTC/USDT",
     timeframe: str = "1h",
     days_back: int = 60,
-    max_retries: int = 3
+    max_retries: int = 3,
+    check_stop_fn = None
 ) -> pd.DataFrame:
     """
     Downloads real historical market data from Binance Spot and Futures endpoints using CCXT:
@@ -137,16 +138,20 @@ def fetch_real_binance_data(
         retries = 0
         
         while current_since < now_ms:
+            if check_stop_fn is not None and check_stop_fn():
+                raise ValueError("Training stopped by user request during data download")
             try:
                 ohlcv = exchange.fetch_ohlcv(sym, timeframe, current_since, limit=1000)
                 if len(ohlcv) == 0:
-                    break
+                     break
                 all_ohlcv.extend(ohlcv)
                 # Shift forward to avoid repeating the last candle
                 current_since = ohlcv[-1][0] + 1
                 retries = 0
                 time.sleep(0.15) # respect rate limits
             except Exception as e:
+                if "Training stopped" in str(e):
+                    raise e
                 retries += 1
                 if retries > max_retries:
                     print(f"[Data Pipeline] Error downloading {sym}: {e}. Retries exceeded.")
@@ -160,7 +165,6 @@ def fetch_real_binance_data(
     
     print("[Data Pipeline] Fetching Spot OHLCV...")
     spot_ohlcv = []
-    # Check if the symbol is available on Binance Spot before attempting fetch
     is_spot_available = False
     try:
         spot_exchange.load_markets()
@@ -174,6 +178,8 @@ def fetch_real_binance_data(
         try:
             spot_ohlcv = fetch_ohlcv_chronological(spot_exchange, spot_symbol, start_time_ms)
         except Exception as e:
+            if "Training stopped" in str(e):
+                raise e
             print(f"[Data Pipeline Warning] Failed Spot OHLCV fetch for {spot_symbol}: {e}")
     else:
         print(f"[Data Pipeline Info] Symbol {spot_symbol} is not listed on Binance Spot. Skipping Spot download and using Futures data.")
@@ -202,6 +208,8 @@ def fetch_real_binance_data(
     all_funding = []
     funding_since = start_time_ms
     while funding_since < now_ms:
+        if check_stop_fn is not None and check_stop_fn():
+            raise ValueError("Training stopped by user request during data download")
         try:
             funding = futures_exchange.fetch_funding_rate_history(futures_symbol, since=funding_since, limit=100)
             if len(funding) == 0:
@@ -210,6 +218,8 @@ def fetch_real_binance_data(
             funding_since = funding[-1]["timestamp"] + 1
             time.sleep(0.15)
         except Exception as e:
+            if "Training stopped" in str(e):
+                raise e
             print(f"[Data Pipeline] Funding Rate error/unsupported: {e}")
             break
             
@@ -218,6 +228,8 @@ def fetch_real_binance_data(
     all_oi = []
     oi_since = start_time_ms
     while oi_since < now_ms:
+        if check_stop_fn is not None and check_stop_fn():
+            raise ValueError("Training stopped by user request during data download")
         try:
             # Query Binance specific historical Open Interest hist endpoint via CCXT
             # If timeframe is 1m, use 5m for Open Interest since Binance doesn't support 1m OI history
@@ -229,6 +241,8 @@ def fetch_real_binance_data(
             oi_since = oi_data[-1]["timestamp"] + 1
             time.sleep(0.15)
         except Exception as e:
+            if "Training stopped" in str(e):
+                raise e
             print(f"[Data Pipeline] Open Interest error/unsupported: {e}")
             break
     # Translate CCXT timeframe to Pandas 3.0 compatible offset

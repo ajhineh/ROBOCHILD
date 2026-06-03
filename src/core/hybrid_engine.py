@@ -146,7 +146,7 @@ class HybridEngine:
         """
         symbol = trade["symbol"]
         symbol_clean = symbol.split('/')[0].lower()
-        model_file = f"models/ppo_futures_bot_{symbol_clean}_final.zip"
+        model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
         
         if not os.path.exists(model_file):
             logger.warning(f"🔒 AI Agent rejected: PPO model file not found at {model_file}")
