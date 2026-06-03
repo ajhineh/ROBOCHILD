@@ -124,12 +124,15 @@ def train_agent(
     os.makedirs(model_save_dir, exist_ok=True)
     os.makedirs(tb_log_dir, exist_ok=True)
     
+    # Extract clean symbol from model_name
+    symbol_clean = model_name.replace("ppo_volume_bars_child_", "").upper()
+
     # 1. Initialize vectorized environments
     def make_train_env():
-        return FuturesTradingEnv(train_df)
+        return FuturesTradingEnv(train_df, symbol=symbol_clean)
     
     def make_val_env():
-        return FuturesTradingEnv(val_df)
+        return FuturesTradingEnv(val_df, symbol=symbol_clean)
         
     train_env = DummyVecEnv([make_train_env])
     val_env = DummyVecEnv([make_val_env])
@@ -190,11 +193,12 @@ def train_agent(
         
     # 3. Setup Eval Callback
     # Monitor validation performance and save the best model
+    # Evaluates every 60,000 steps as requested by the research team
     eval_callback = EvalCallback(
         val_env,
         best_model_save_path=model_save_dir,
         log_path=tb_log_dir if HAS_TENSORBOARD else None,
-        eval_freq=max(1000, total_timesteps // 20),
+        eval_freq=60000,
         n_eval_episodes=5,
         deterministic=True,
         render=False
@@ -230,6 +234,14 @@ def train_agent(
     # 5. Save the final model and vec normalization statistics
     final_model_path = os.path.join(model_save_dir, f"{model_name}_final")
     model.save(final_model_path)
+    
+    # If the evaluation callback saved a best model, copy/rename it to model_name + "_best.zip"
+    best_temp_path = os.path.join(model_save_dir, "best_model.zip")
+    best_target_path = os.path.join(model_save_dir, f"{model_name}_best")
+    if os.path.exists(best_temp_path):
+        import shutil
+        shutil.move(best_temp_path, best_target_path + ".zip")
+        print(f"[Agent Trainer] Best evaluation model renamed to {best_target_path}.zip")
     
     stats_path = os.path.join(model_save_dir, f"{model_name}_vec_normalize.pkl")
     train_env.save(stats_path)

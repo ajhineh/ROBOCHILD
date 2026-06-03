@@ -20,10 +20,12 @@ class FuturesTradingEnv(gym.Env):
         transaction_fee_rate: float = 0.0004, # 0.04% execution fee
         base_slippage_rate: float = 0.0002,   # 0.02% base slippage
         liquidation_penalty_coef: float = 0.05, # Forced terminal liquidation cost
-        live_client = None             # Live exchange client for Phase 4 streaming
+        live_client = None,            # Live exchange client for Phase 4 streaming
+        symbol: str = None             # Symbol name
     ):
         super(FuturesTradingEnv, self).__init__()
         
+        self.symbol = symbol
         self.df = self._build_volume_bars(df.copy()) if df is not None else pd.DataFrame()
         self.n_steps = len(self.df) if df is not None else 100000
         self.max_inventory = max_inventory
@@ -243,9 +245,16 @@ class FuturesTradingEnv(gym.Env):
             # 3. New reward function: Reward = (PnL_Pct * 100) - (Drawdown_Pct * 100 * 0.5) - Fee_Pct
             reward = (pnl_pct * 100.0) - (drawdown_pct * 100.0 * 0.5) - fee_pct
             
-            # 4. Holding penalty (0.005 per step if position was held during the step)
+            # Apply symmetric reward scaling for successful (profitable) trades
+            if pnl_pct > 0:
+                if self.position > 1e-8: # Successful LONG
+                    reward *= 1.5
+                elif self.position < -1e-8: # Successful SHORT
+                    reward *= 1.5
+            
+            # 4. Holding penalty (reduced from 0.005 to 0.0005 per step if position was held during the step)
             if abs(target_position) > 1e-8:
-                reward -= 0.005
+                reward -= 0.0005
                 
             self.portfolio_value = new_portfolio_value
             observation = self._get_observation() if not terminated else np.zeros(self.observation_space.shape, dtype=np.float64)
@@ -286,10 +295,14 @@ class FuturesTradingEnv(gym.Env):
             current_ticks.append(row)
             current_volume += vol_val
             
-            # آستانه داینامیک: ۵ درصد از کل حجم ۲۴ ساعت گذشته (Comment 1)
-            v_thresh = 0.05 * (rolling_24h_sum.iloc[idx] * row["mid_price"])
-            if pd.isna(v_thresh) or v_thresh <= 1000.0:
-                v_thresh = 50000.0 # فالبک امن در صورت کم بودن شدید حجم
+            # آستانه داینامیک یا ثابت بر اساس سمبل
+            symbol_clean = self.symbol.split('/')[0].lower() if self.symbol else ""
+            if symbol_clean in ["popcat", "bome"]:
+                v_thresh = 50000.0
+            else:
+                v_thresh = 0.05 * (rolling_24h_sum.iloc[idx] * row["mid_price"])
+                if pd.isna(v_thresh) or v_thresh <= 1000.0:
+                    v_thresh = 50000.0 # فالبک امن در صورت کم بودن شدید حجم
                 
             if current_volume >= v_thresh:
                 # بستن کندل حجمی و استخراج مقادیر جدید

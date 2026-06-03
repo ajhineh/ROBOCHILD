@@ -114,7 +114,7 @@ def background_train_orchestrator(symbol: str, steps: int = 200000):
     # تقسیم‌بندی زمانی میم‌کوین‌ها روی تایم‌فریم ۱ دقیقه‌ای و ارزهای شاخص روی ۵ دقیقه‌ای
     is_meme = symbol_clean in ["bome", "pepe", "doge", "shib", "wif", "bonk", "floki", "popcat"]
     timeframe = "1m" if is_meme else "5m"
-    days_back = 15 if timeframe == "1m" else 45
+    days_back = 45 if timeframe == "1m" else 60
 
     log_event(f"🧠 شروع آموزش پس‌زمینه شبکه عصبی هوش مصنوعی برای {symbol}...")
     log_event(f"🧠 تخصیص تعداد {steps:,} گام روی تایم‌فریم {timeframe} ({days_back} روز داده تاریخی)")
@@ -624,7 +624,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             }, 400)
             return
 
-        model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
+        model_file = f"models/ppo_volume_bars_child_{symbol_clean}_best.zip"
+        if not os.path.exists(model_file):
+            model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
 
         # ۱. در صورت وجود مدل آموزش‌دیده، فوراً ارز را در سیستم زنده ثبت و بازنشانی می‌کنیم
         if os.path.exists(model_file):
@@ -697,11 +699,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         if delete_model:
             # حذف فایل‌ها در صورت لزوم
-            model_zip = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
+            model_zip_final = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
+            model_zip_best = f"models/ppo_volume_bars_child_{symbol_clean}_best.zip"
             model_pkl = f"models/ppo_volume_bars_child_{symbol_clean}_vec_normalize.pkl"
             progress_json = f"models/progress_ppo_volume_bars_child_{symbol_clean}.json"
             
-            for file_path in [model_zip, model_pkl, progress_json]:
+            for file_path in [model_zip_final, model_zip_best, model_pkl, progress_json]:
                 if os.path.exists(file_path):
                     try:
                         os.remove(file_path)

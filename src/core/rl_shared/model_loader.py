@@ -53,18 +53,29 @@ class RLModelLoader:
         """
         symbol_clean = symbol.split('/')[0].lower()
         
-        # ۱. پیدا کردن نام فایل‌های مدل و آمار
-        model_filename = f"ppo_volume_bars_child_{symbol_clean}_final.zip"
+        # ۱. پیدا کردن نام فایل‌های مدل و آمار با اولویت بهترین مدل (Best)
+        model_filename = f"ppo_volume_bars_child_{symbol_clean}_best.zip"
         stats_filename = f"ppo_volume_bars_child_{symbol_clean}_vec_normalize.pkl"
         
         model_path = os.path.join(self.models_dir, model_filename)
         stats_path = os.path.join(self.models_dir, stats_filename)
         
+        # در صورت عدم وجود مدل بهترین اختصاصی، تلاش برای لود مدل نهایی اختصاصی
+        if not os.path.exists(model_path):
+            logger.warning(f"⚠️ Dedicated PPO best model for {symbol} not found. Trying fallback to final model...")
+            model_filename = f"ppo_volume_bars_child_{symbol_clean}_final.zip"
+            model_path = os.path.join(self.models_dir, model_filename)
+            
         # مسیر پشتیبان کلی در صورت عدم وجود مدل اختصاصی نماد
         if not os.path.exists(model_path):
-            logger.warning(f"⚠️ Dedicated PPO model for {symbol} not found at {model_path}. Loading default model...")
-            model_path = os.path.join(self.models_dir, "ppo_volume_bars_child_final.zip")
+            logger.warning(f"⚠️ Dedicated PPO model for {symbol} not found at {model_path}. Loading default best model...")
+            model_path = os.path.join(self.models_dir, "ppo_volume_bars_child_best.zip")
             stats_path = os.path.join(self.models_dir, "ppo_volume_bars_child_vec_normalize.pkl")
+            
+        # مسیر پشتیبان نهایی در صورت عدم وجود مدل پیش‌فرض بهترین
+        if not os.path.exists(model_path):
+            logger.warning(f"⚠️ Default best model not found. Fallback to default final model...")
+            model_path = os.path.join(self.models_dir, "ppo_volume_bars_child_final.zip")
             
         if not os.path.exists(model_path):
             logger.error(f"❌ Critical: PPO model file not found at {model_path}")
