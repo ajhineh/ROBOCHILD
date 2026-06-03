@@ -35,7 +35,6 @@ test_ppo_history.json.bak
 Thumbs.db
 
 # Neural Network Models & Training Logs
-/models/
 /tb_logs/
 
 # Local Scratch/Temp Directories
