@@ -53,10 +53,14 @@ class PurePPOStrategy:
         self.quote_denomination = quote_denomination
         self.history_file_path = os.path.abspath(history_file_path)
 
-        # صف دریافت ناهمگام تیک‌های قیمتی جهت پیشگیری از تأخیر در دریافت پیام‌های وب‌سوکت
-        self.tick_queue: asyncio.Queue = asyncio.Queue()
+        # صف دریافت ناهمگام تیک‌های قیمتی تفکیک شده برای هر نماد جهت پیشگیری از لغزش و تداخل نمادها
+        self.tick_queues: Dict[str, asyncio.Queue] = {sym: asyncio.Queue() for sym in symbols}
         self.worker_task: Optional[asyncio.Task] = None
+        self.worker_tasks: Dict[str, asyncio.Task] = {}
         self.should_run = True
+
+        # ردیاب زمان آخرین پیش‌بینی عصبی برای هر نماد جهت اعمال محدودیت نرخ (Rate Limiting)
+        self.last_prediction_time: Dict[str, float] = {sym: 0.0 for sym in symbols}
 
         # بافرهای تاریخچه تیک‌های قیمتی برای هر نماد (نگهداری آخرین ۶۰ ثانیه تیک‌ها)
         self.prices: Dict[str, deque] = {sym: deque() for sym in symbols}
@@ -146,27 +150,52 @@ class PurePPOStrategy:
     def feed_tick(self, symbol: str, price: float, timestamp: int, lob_result: Optional[dict] = None, dex_trades: Optional[list] = None) -> None:
         """تغذیه ناهمگام تیک‌های قیمتی زمان‌واقعی به صف دریافت بدون بلاک کردن ترد فراخوان"""
         try:
-            self.tick_queue.put_nowait({
+            if symbol not in self.tick_queues:
+                self.tick_queues[symbol] = asyncio.Queue()
+            self.tick_queues[symbol].put_nowait({
                 "symbol": symbol,
                 "price": price,
                 "timestamp": timestamp,
                 "lob_result": lob_result,
                 "dex_trades": dex_trades
             })
+            
+            # راه‌اندازی ترد پس‌زمینه به صورت پویا در صورت اضافه شدن نماد جدید در اجرای لایو
+            if self.worker_task and not self.worker_task.done():
+                if symbol not in self.worker_tasks or self.worker_tasks[symbol].done():
+                    self.worker_tasks[symbol] = asyncio.create_task(self._worker_loop_for_symbol(symbol))
         except Exception as e:
-            logger.error(f"Error putting tick into PPO queue: {e}")
+            logger.error(f"Error putting tick into PPO queue for {symbol}: {e}")
 
     async def _worker_loop(self) -> None:
-        """حلقه همگام‌ساز ناهمگام برای استخراج داده‌ها و اجرای پیش‌بینی مدل عصبی"""
+        """حلقه همگام‌ساز ناهمگام اصلی جهت هماهنگی حلقه‌های اختصاصی نمادها"""
+        self.worker_tasks = {}
+        for sym in self.symbols:
+            self.worker_tasks[sym] = asyncio.create_task(self._worker_loop_for_symbol(sym))
+        
+        try:
+            await asyncio.gather(*self.worker_tasks.values())
+        except asyncio.CancelledError:
+            for sym, task in self.worker_tasks.items():
+                if not task.done():
+                    task.cancel()
+            raise
+
+    async def _worker_loop_for_symbol(self, symbol: str) -> None:
+        """حلقه اختصاصی نماد جهت پردازش داده‌ها و پیش‌بینی مدل عصبی بدون تداخل با سایر ارزها"""
+        if symbol not in self.tick_queues:
+            self.tick_queues[symbol] = asyncio.Queue()
+        queue = self.tick_queues[symbol]
+        
         while self.should_run:
             try:
-                tick = await self.tick_queue.get()
+                tick = await queue.get()
                 await self._handle_tick_async(tick)
-                self.tick_queue.task_done()
+                queue.task_done()
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in PPO async worker: {e}")
+                logger.error(f"Error in PPO async worker for {symbol}: {e}")
                 await asyncio.sleep(0.1)
 
     async def _handle_tick_async(self, tick: dict) -> None:
@@ -183,6 +212,8 @@ class PurePPOStrategy:
             self.lstm_states[symbol] = None
         if symbol not in self.last_order_placed_time:
             self.last_order_placed_time[symbol] = 0.0
+        if symbol not in self.last_prediction_time:
+            self.last_prediction_time[symbol] = 0.0
 
         # ۲. بارگذاری تنبل مدل عصبی در صورت لزوم
         if symbol not in self.models and symbol not in self.normalized_envs:
@@ -200,7 +231,7 @@ class PurePPOStrategy:
         history = self.prices[symbol]
         history.append({"price": price, "timestamp": now})
         
-        # پاکسازی تیک‌های قدیمی‌تر از ۶۰ ثانیه
+        # پاکسازی تیک‌های قیمتی قدیمی‌تر از ۶۰ ثانیه
         cutoff = now - 60000
         while history and history[0]["timestamp"] < cutoff:
             history.popleft()
@@ -240,6 +271,11 @@ class PurePPOStrategy:
         if (now_sec - self.last_order_placed_time[symbol]) < 5.0:
             return
 
+        # ۸. جلوگیری از اجرای مکرر پیش‌بینی مدل عصبی جهت پیشگیری از لغزش و تداخل ناشی از اورلود CPU (Rate Limiting)
+        last_pred_time = self.last_prediction_time.get(symbol, 0.0)
+        if (now_sec - last_pred_time) < 0.2:  # حداکثر ۵ پیش‌بینی در ثانیه برای هر ارز
+            return
+
         # ۴. نمونه‌گیری وضعیت و استخراج ویژگی‌های ۱۲ بعدی
         # تخمین نوسانات متحرک ساده در بافر قیمت‌ها
         volatility_ratio = 0.02
@@ -263,6 +299,9 @@ class PurePPOStrategy:
         # ۵. نرمال‌سازی بردار ورودی
         normalized_env = self.normalized_envs.get(symbol)
         obs_normalized = RLModelLoader.normalize_observation(obs, normalized_env)
+
+        # ثبت زمان پیش‌بینی فعلی پیش از اجرای مدل
+        self.last_prediction_time[symbol] = now_sec
 
         # ۶. پیش‌بینی سیاست بهینه توسط مدل عصبی PPO
         model = self.models.get(symbol)
@@ -595,4 +634,13 @@ class PurePPOStrategy:
                 await self.worker_task
             except asyncio.CancelledError:
                 pass
-        logger.info("🔌 PurePPOStrategy background task stopped.")
+        # اطمینان از لغو تمام کارگران اختصاصی نمادها
+        for sym, task in list(self.worker_tasks.items()):
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self.worker_tasks.clear()
+        logger.info("🔌 PurePPOStrategy background tasks stopped.")
