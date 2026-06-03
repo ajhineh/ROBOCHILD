@@ -970,22 +970,17 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 global_executor.max_concurrent_positions = Config.MAX_CONCURRENT_POSITIONS
                 global_executor.max_drawdown_limit_usdt = Config.MAX_DRAWDOWN_LIMIT_USDT
 
-            # راه‌اندازی یا توقف پویای YoYoStrategy روی ری‌لود تنظیمات (thread-safe)
+            # همواره مطمئن می‌شویم که تسک استراتژی فعال و در حال اجرا باقی می‌ماند (thread-safe)
             if global_engine and hasattr(global_engine, "yoyo"):
                 import asyncio as _asyncio
                 if global_loop:
-                    if is_yoyo: # اگر وضعیت جدید فعال است، مستقیماً استارت شود
-                        if not was_yoyo or not global_engine.yoyo.worker_task or global_engine.yoyo.worker_task.done():
-                            logger.info("⚡ USE_YOYO_STRATEGY enabled on-the-fly. Starting YoYo Strategy worker...")
-                            _asyncio.run_coroutine_threadsafe(global_engine.yoyo.start(), global_loop)
-                            exch = global_executor.exchange if (global_executor and hasattr(global_executor, 'exchange')) else None
-                            if exch:
-                                logger.info("📡 Fetching historical candles for YoYo Strategy...")
-                                _asyncio.run_coroutine_threadsafe(global_engine.yoyo.initialize_candles(exch), global_loop)
-                    else: # اگر وضعیت جدید غیرفعال است، متوقف شود
-                        if was_yoyo:
-                            logger.info("⚡ USE_YOYO_STRATEGY disabled on-the-fly. Stopping YoYo Strategy worker...")
-                            _asyncio.run_coroutine_threadsafe(global_engine.yoyo.stop(), global_loop)
+                    if not global_engine.yoyo.worker_task or global_engine.yoyo.worker_task.done():
+                        logger.info("⚡ Starting YoYo/PPO Strategy worker loop...")
+                        _asyncio.run_coroutine_threadsafe(global_engine.yoyo.start(), global_loop)
+                        exch = global_executor.exchange if (global_executor and hasattr(global_executor, 'exchange')) else None
+                        if exch:
+                            logger.info("📡 Fetching historical candles for Strategy...")
+                            _asyncio.run_coroutine_threadsafe(global_engine.yoyo.initialize_candles(exch), global_loop)
                             
             # اعمال آنی تغییرات به موتور هیبریدی اسکلپر و ضد اسپوفینگ
             if global_engine:
