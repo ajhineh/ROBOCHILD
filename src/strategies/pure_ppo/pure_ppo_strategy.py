@@ -291,9 +291,8 @@ class PurePPOStrategy:
                 logger.error(f"Error predicting action with PPO for {symbol}: {pred_err}")
                 action_ratio = 0.0
         else:
-            # شبیه‌سازی رفتار در صورت عدم بارگذاری وزنه مدل جهت تست یکپارچگی خط لوله اجرا
-            if random.random() < 0.01:
-                action_ratio = random.choice([0.8, -0.8])
+            # شبیه‌سازی رفتار در صورت عدم بارگذاری وزنه مدل جهت تست یکپارچگی خط لوله اجرا (غیرفعال برای جلوگیری از معاملات تصادفی)
+            action_ratio = 0.0
 
         # ۷. ارزیابی حد آستانه ورود سیگنال (Trigger Threshold) با تضمین استفاده از خروجی مستقیم مدل بدون Bias Shifter
         adjusted_action = action_ratio
