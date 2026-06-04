@@ -338,7 +338,13 @@ class PurePPOStrategy:
             # ۱. پیش‌بینی PPO
             if ppo_model is not None:
                 try:
-                    obs_ppo = RLModelLoader.normalize_observation(stacked_obs, ppo_env)
+                    # بررسی ابعاد ورودی مورد انتظار مدل جهت پایداری کامل
+                    model_obs_shape = ppo_model.observation_space.shape[0] if hasattr(ppo_model, "observation_space") else 120
+                    if model_obs_shape == 12:
+                        obs_ppo = RLModelLoader.normalize_observation(obs, ppo_env)
+                    else:
+                        obs_ppo = RLModelLoader.normalize_observation(stacked_obs, ppo_env)
+                    
                     last_state = self.lstm_states[symbol]
                     if hasattr(ppo_model, "policy") and "Lstm" in type(ppo_model.policy).__name__:
                         episode_start = np.array([last_state is None])
