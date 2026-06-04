@@ -575,9 +575,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return
 
         symbol_clean = symbol.split('/')[0].lower()
+        
+        resume = bool(body.get("resume", False))
+        learning_rate = body.get("learning_rate", "linear_0.0003")
 
-        # ۱. اگر استراتژی YoYoStrategy فعال باشد، بدون نیاز به مدل هوش مصنوعی بلافاصله ارز را اضافه می‌کنیم
-        if Config.USE_YOYO_STRATEGY:
+        # ۱. اگر استراتژی YoYoStrategy فعال باشد و درخواست ادامه یادگیری مدل نباشد، بدون نیاز به مدل هوش مصنوعی بلافاصله ارز را اضافه می‌کنیم
+        if Config.USE_YOYO_STRATEGY and not resume:
             if symbol in Config.SYMBOLS:
                 self.send_json({"success": True, "message": f"جفت ارز {symbol} از قبل فعال و در حال ترید است."})
                 return
@@ -629,9 +632,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         model_file = f"models/ppo_volume_bars_child_{symbol_clean}_best.zip"
         if not os.path.exists(model_file):
             model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
-
-        resume = bool(body.get("resume", False))
-        learning_rate = body.get("learning_rate", "linear_0.0003")
 
         # ۱. در صورت وجود مدل آموزش‌دیده و عدم درخواست از سرگیری مجدد، فوراً ارز را در سیستم زنده ثبت و بازنشانی می‌کنیم
         if os.path.exists(model_file) and not resume:
