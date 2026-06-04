@@ -65,6 +65,9 @@ class PurePPOStrategy:
         # بافرهای تاریخچه تیک‌های قیمتی برای هر نماد (نگهداری آخرین ۶۰ ثانیه تیک‌ها)
         self.prices: Dict[str, deque] = {sym: deque() for sym in symbols}
         
+        # تاریخچه وضعیت‌ها برای Frame Stacking
+        self.obs_history: Dict[str, deque] = {sym: deque(maxlen=10) for sym in symbols}
+        
         # مدیریت مدل‌های یادگیری تقویت‌پذیر و آمار نرمال‌سازی
         self.loader = RLModelLoader()
         self.models: Dict[str, Any] = {}
@@ -98,18 +101,19 @@ class PurePPOStrategy:
         self.load_history()
 
     async def start(self) -> None:
-        """راه‌اندازی ترد ناهمگام استراتژی و بارگذاری مدل‌های PPO"""
+        """راه‌اندازی ترد ناهمگام استراتژی و بارگذاری مدل‌های Ensemble"""
         self.should_run = True
         
-        # بارگذاری پویای مدل‌های PPO برای تمام جفت‌ارزها
+        # بارگذاری پویای مدل‌های Ensemble برای تمام جفت‌ارزها
         for sym in self.symbols:
-            model, env = self.loader.load_ppo_model(sym)
-            if model is not None:
-                self.models[sym] = model
-                self.normalized_envs[sym] = env
-                logger.info(f"🧠 PPO Model loaded successfully for {sym}")
+            models_dict = self.loader.load_ensemble_models(sym)
+            ppo_model, _ = models_dict.get("ppo", (None, None))
+            if ppo_model is not None:
+                self.models[sym] = models_dict
+                logger.info(f"🧠 Ensemble Models loaded successfully for {sym}")
             else:
-                logger.warning(f"⚠️ Could not load PPO model weights for {sym}. Artificial mock actions will be used.")
+                self.models[sym] = None
+                logger.warning(f"⚠️ Could not load Ensemble PPO model weights for {sym}. Artificial mock actions will be used.")
 
         if not self.worker_task or self.worker_task.done():
             self.worker_task = asyncio.create_task(self._worker_loop())
@@ -216,16 +220,15 @@ class PurePPOStrategy:
             self.last_prediction_time[symbol] = 0.0
 
         # ۲. بارگذاری تنبل مدل عصبی در صورت لزوم
-        if symbol not in self.models and symbol not in self.normalized_envs:
-            model, env = self.loader.load_ppo_model(symbol)
-            if model is not None:
-                self.models[symbol] = model
-                self.normalized_envs[symbol] = env
-                logger.info(f"🧠 PPO Model loaded dynamically via tick for {symbol}")
+        if symbol not in self.models:
+            models_dict = self.loader.load_ensemble_models(symbol)
+            ppo_model, _ = models_dict.get("ppo", (None, None))
+            if ppo_model is not None:
+                self.models[symbol] = models_dict
+                logger.info(f"🧠 Ensemble Models loaded dynamically via tick for {symbol}")
             else:
                 self.models[symbol] = None
-                self.normalized_envs[symbol] = None
-                logger.warning(f"⚠️ Could not load PPO model weights for {symbol}. Artificial mock actions will be used.")
+                logger.warning(f"⚠️ Could not load Ensemble models for {symbol}. Artificial mock actions will be used.")
 
         # ۳. به‌روزرسانی بافر محلی قیمت‌ها
         history = self.prices[symbol]
@@ -296,52 +299,257 @@ class PurePPOStrategy:
             basis_ratio=0.0
         )
 
-        # ۵. نرمال‌سازی بردار ورودی
-        normalized_env = self.normalized_envs.get(symbol)
-        obs_normalized = RLModelLoader.normalize_observation(obs, normalized_env)
+        # مقداردهی به بافر فریم‌ها (Frame Stacking)
+        if symbol not in self.obs_history:
+            self.obs_history[symbol] = deque(maxlen=10)
+            
+        if len(self.obs_history[symbol]) == 0:
+            for _ in range(10):
+                self.obs_history[symbol].append(obs)
+        else:
+            self.obs_history[symbol].append(obs)
+            
+        stacked_obs = np.concatenate(list(self.obs_history[symbol]))
 
         # ثبت زمان پیش‌بینی فعلی پیش از اجرای مدل
         self.last_prediction_time[symbol] = now_sec
 
-        # ۶. پیش‌بینی سیاست بهینه توسط مدل عصبی PPO
-        model = self.models.get(symbol)
-        action_ratio = 0.0
+        models_dict = self.models.get(symbol)
         
-        if model is not None:
-            try:
-                # اجرای گام پیش‌بینی به صورت کاملاً دترمینستیک با لایه حافظه‌دار LSTM
-                last_state = self.lstm_states[symbol]
-                # اگر مدل از نوع RecurrentPPO باشد، state را می‌گیرد
-                if hasattr(model, "policy") and "Lstm" in type(model.policy).__name__:
-                    # در لایو بازار گام‌ها به صورت متوالی ۱ هستند
-                    episode_start = np.array([last_state is None])
-                    action, next_state = model.predict(
-                        obs_normalized,
-                        state=last_state,
-                        episode_start=episode_start,
-                        deterministic=True
-                    )
-                    self.lstm_states[symbol] = next_state
-                    action_ratio = float(action[0])
-                else:
-                    action, _ = model.predict(obs_normalized, deterministic=True)
-                    action_ratio = float(action[0])
-            except Exception as pred_err:
-                logger.error(f"Error predicting action with PPO for {symbol}: {pred_err}")
-                action_ratio = 0.0
-        else:
-            # شبیه‌سازی رفتار در صورت عدم بارگذاری وزنه مدل جهت تست یکپارچگی خط لوله اجرا (غیرفعال برای جلوگیری از معاملات تصادفی)
-            action_ratio = 0.0
+        ensemble_action = 0.0
+        fallback_to_ppo = False
+        ppo_action = 0.0
+        
+        diag_report = None
 
-        # ۷. ارزیابی حد آستانه ورود سیگنال (Trigger Threshold) با تضمین استفاده از خروجی مستقیم مدل بدون Bias Shifter
-        adjusted_action = action_ratio
-        
-        # بالا بردن حد آستانه ورود به ۰.۶۰ برای POPCAT و BOME جهت فیلتر کردن کامل نویزها و کارمزدهای ریز
-        threshold = 0.60 if symbol in ["POPCAT/USDT:USDT", "BOME/USDT:USDT"] else 0.25
+        if isinstance(models_dict, dict):
+            ppo_model, ppo_env = models_dict.get("ppo", (None, None))
+            sac_model, sac_env = models_dict.get("sac", (None, None))
+            td3_model, td3_env = models_dict.get("td3", (None, None))
+            
+            # بررسی لود بودن مدل‌ها جهت تعیین فالبک
+            if ppo_model is None:
+                fallback_to_ppo = True
+                ppo_action = 0.0
+            elif sac_model is None or td3_model is None:
+                logger.warning(f"⚠️ SAC or TD3 model is missing for {symbol}. Falling back to PPO-only prediction.")
+                fallback_to_ppo = True
+            
+            # ۱. پیش‌بینی PPO
+            if ppo_model is not None:
+                try:
+                    obs_ppo = RLModelLoader.normalize_observation(stacked_obs, ppo_env)
+                    last_state = self.lstm_states[symbol]
+                    if hasattr(ppo_model, "policy") and "Lstm" in type(ppo_model.policy).__name__:
+                        episode_start = np.array([last_state is None])
+                        action, next_state = ppo_model.predict(
+                            obs_ppo,
+                            state=last_state,
+                            episode_start=episode_start,
+                            deterministic=True
+                        )
+                        self.lstm_states[symbol] = next_state
+                        ppo_action = float(action[0])
+                    else:
+                        action, _ = ppo_model.predict(obs_ppo, deterministic=True)
+                        ppo_action = float(action[0])
+                except Exception as ppo_err:
+                    logger.error(f"❌ Error predicting PPO for {symbol}: {ppo_err}")
+                    ppo_action = 0.0
+                    fallback_to_ppo = True
+            
+            # ۲ و ۳. پیش‌بینی SAC و TD3 در صورت عدم فالبک
+            if not fallback_to_ppo:
+                try:
+                    obs_sac = RLModelLoader.normalize_observation(stacked_obs, sac_env)
+                    sac_act_raw, _ = sac_model.predict(obs_sac, deterministic=True)
+                    sac_action = float(sac_act_raw[0])
+                    
+                    obs_td3 = RLModelLoader.normalize_observation(stacked_obs, td3_env)
+                    td3_act_raw, _ = td3_model.predict(obs_td3, deterministic=True)
+                    td3_action = float(td3_act_raw[0])
+                    
+                    # نرمال‌سازی با np.tanh()
+                    ppo_norm = float(np.tanh(ppo_action / 0.40))
+                    sac_norm = float(np.tanh(sac_action / 0.30))
+                    td3_norm = float(np.tanh(td3_action / 0.30))
+                    
+                    # محاسبه وزن‌های انسیبل تطبیقی
+                    weights = self.get_adaptive_weights(symbol)
+                    w_ppo = weights.get("ppo", 0.45)
+                    w_sac = weights.get("sac", 0.30)
+                    w_td3 = weights.get("td3", 0.25)
+                    
+                    ensemble_action = w_ppo * ppo_norm + w_sac * sac_norm + w_td3 * td3_norm
+                    
+                    # ایجاد گزارش عیب‌یابی برای لاگ و وزن‌دهی انطباقی بعدی
+                    diag_report = {
+                        "ppo_raw": ppo_action,
+                        "ppo_norm": ppo_norm,
+                        "sac_raw": sac_action,
+                        "sac_norm": sac_norm,
+                        "td3_raw": td3_action,
+                        "td3_norm": td3_norm,
+                        "weights": weights,
+                        "ensemble_action": ensemble_action,
+                        "fallback": False
+                    }
+                    
+                    logger.info(
+                        f"📊 Ensemble components for {symbol}: "
+                        f"PPO: {ppo_action:+.4f} (norm: {ppo_norm:+.4f}, w: {w_ppo:.2f}) | "
+                        f"SAC: {sac_action:+.4f} (norm: {sac_norm:+.4f}, w: {w_sac:.2f}) | "
+                        f"TD3: {td3_action:+.4f} (norm: {td3_norm:+.4f}, w: {w_td3:.2f}) | "
+                        f"Result: {ensemble_action:+.4f}"
+                    )
+                except Exception as ensemble_err:
+                    logger.error(f"❌ Error executing Ensemble models for {symbol}: {ensemble_err}. Falling back to PPO-only.")
+                    fallback_to_ppo = True
+        else:
+            # سازگاری عقب‌رو با مدل‌های تک PPO قدیمی
+            fallback_to_ppo = True
+            model = models_dict
+            env = self.normalized_envs.get(symbol)
+            if model is not None:
+                try:
+                    # برای مدل قدیمی، بردار ورودی همان obs ۱۲ بعدی است
+                    obs_ppo = RLModelLoader.normalize_observation(obs, env)
+                    last_state = self.lstm_states[symbol]
+                    if hasattr(model, "policy") and "Lstm" in type(model.policy).__name__:
+                        episode_start = np.array([last_state is None])
+                        action, next_state = model.predict(
+                            obs_ppo,
+                            state=last_state,
+                            episode_start=episode_start,
+                            deterministic=True
+                        )
+                        self.lstm_states[symbol] = next_state
+                        ppo_action = float(action[0])
+                    else:
+                        action, _ = model.predict(obs_ppo, deterministic=True)
+                        ppo_action = float(action[0])
+                except Exception as err:
+                    logger.error(f"❌ Error predicting old single model: {err}")
+                    ppo_action = 0.0
+
+        if fallback_to_ppo:
+            if isinstance(models_dict, dict):
+                # فالبک برای مدل انسیبل جدید: اکشن نرمالایز شده PPO به عنوان مبنا
+                ppo_norm = float(np.tanh(ppo_action / 0.40))
+                ensemble_action = ppo_norm
+                threshold = 0.60
+                diag_report = {
+                    "ppo_raw": ppo_action,
+                    "ppo_norm": ppo_norm,
+                    "ensemble_action": ensemble_action,
+                    "fallback": True
+                }
+                logger.info(f"🔄 Fallback triggered: Using PPO-only normalized action {ensemble_action:+.4f} with threshold {threshold}")
+            else:
+                # برای مدل‌های تک قدیمی
+                ensemble_action = ppo_action
+                threshold = 0.60 if symbol in ["POPCAT/USDT:USDT", "BOME/USDT:USDT"] else 0.25
+                diag_report = {
+                    "ppo_raw": ppo_action,
+                    "ensemble_action": ensemble_action,
+                    "old_model_mode": True
+                }
+                logger.info(f"🔄 Old Model Mode: Using PPO raw action {ensemble_action:+.4f} with threshold {threshold}")
+        else:
+            threshold = 0.60
+
+        # ۷. ارزیابی حد آستانه ورود سیگنال (Trigger Threshold)
+        adjusted_action = ensemble_action
         
         if abs(adjusted_action) >= threshold:
             side: Literal["long", "short"] = "long" if adjusted_action > 0 else "short"
-            await self._trigger_ppo_trade(symbol, price, side, adjusted_action, now)
+            await self._trigger_ppo_trade(symbol, price, side, adjusted_action, now, diag_report)
+
+    def get_adaptive_weights(self, symbol: str) -> Dict[str, float]:
+        """
+        محاسبه داینامیک وزن‌های Ensemble بر اساس عملکرد تاریخی مدل‌ها در ۱۴ تا ۳۰ روز گذشته.
+        این متد با تحلیل میزان همسویی جهت پیش‌بینی‌های انفرادی هر الگوریتم با سود/زیان معاملات بسته شده،
+        وزن بهینه اختصاصی جفت‌ارز را استخراج می‌کند.
+        """
+        default_weights = {"ppo": 0.45, "sac": 0.30, "td3": 0.25}
+        
+        signals = self.history.get("signals", [])
+        if not signals:
+            return default_weights
+            
+        now_sec = time.time()
+        days_14_ago = now_sec - (14 * 24 * 3600)
+        
+        recent_trades = []
+        for s in signals:
+            if s.get("symbol") != symbol:
+                continue
+            if "pnl" not in s or s.get("pnl") is None:
+                continue
+            trade_time = s.get("time", 0)
+            if trade_time < days_14_ago:
+                continue
+            recent_trades.append(s)
+            
+        if len(recent_trades) < 5:
+            return default_weights
+            
+        scores = {"ppo": 0.0, "sac": 0.0, "td3": 0.0}
+        counts = {"ppo": 0, "sac": 0, "td3": 0}
+        
+        for trade in recent_trades:
+            pnl = trade["pnl"]
+            diag = trade.get("diagnostic_report")
+            if not diag or not isinstance(diag, dict):
+                continue
+                
+            is_win = pnl > 0
+            
+            trade_type = trade.get("type", "")
+            if "SELL_EXIT" in trade_type:
+                entry_direction = 1.0  # LONG
+            elif "BUY_EXIT" in trade_type:
+                entry_direction = -1.0  # SHORT
+            else:
+                continue
+                
+            for algo in ["ppo", "sac", "td3"]:
+                norm_key = f"{algo}_norm"
+                if norm_key in diag:
+                    val = diag[norm_key]
+                    is_aligned = (val * entry_direction) > 0
+                    
+                    if (is_win and is_aligned) or (not is_win and not is_aligned):
+                        scores[algo] += 1.0
+                    counts[algo] += 1
+                    
+        final_weights = {}
+        total_score = 0.0
+        
+        for algo in ["ppo", "sac", "td3"]:
+            if counts[algo] > 0:
+                accuracy = scores[algo] / counts[algo]
+                base_w = default_weights[algo]
+                final_weights[algo] = base_w * (0.5 + accuracy)
+            else:
+                final_weights[algo] = default_weights[algo]
+            total_score += final_weights[algo]
+            
+        if total_score > 0:
+            for algo in final_weights:
+                final_weights[algo] /= total_score
+        else:
+            final_weights = default_weights
+            
+        final_weights["ppo"] = max(min(final_weights["ppo"], 0.60), 0.35)
+        final_weights["sac"] = max(min(final_weights["sac"], 0.45), 0.20)
+        final_weights["td3"] = max(min(final_weights["td3"], 0.35), 0.15)
+        
+        sum_w = sum(final_weights.values())
+        for algo in final_weights:
+            final_weights[algo] /= sum_w
+            
+        return final_weights
 
     async def _trigger_ppo_trade(
         self,
@@ -349,7 +557,8 @@ class PurePPOStrategy:
         price: float,
         side: Literal["long", "short"],
         action_ratio: float,
-        timestamp: int
+        timestamp: int,
+        diagnostic_report: Optional[dict] = None
     ) -> None:
         """ایجاد پوزیشن معاملاتی شبیه‌سازی شده و ارسال سیگنال پیشنهادی به هسته صرافی جهت کنترل فیلترهای ۲۹ گانه"""
         self.last_order_placed_time[symbol] = time.time()
@@ -403,11 +612,11 @@ class PurePPOStrategy:
             "tp1_hit": False,
             "timestamp": timestamp,
             "status": "pending",
-            "diagnostic_report": None
+            "diagnostic_report": diagnostic_report
         }
 
         self.active_trades[symbol] = new_trade
-        logger.info(f"🏹 Neural Network PPO proposed {side.upper()} order for {symbol} at ${price:.6f} | Weight: {action_ratio:+.2f}")
+        logger.info(f"🏹 Neural Network Ensemble proposed {side.upper()} order for {symbol} at ${price:.6f} | Weight: {action_ratio:+.2f}")
 
         # ۴. فید کردن سیگنال به موتور تصمیم‌گیر جهت اعمال فیلترهای ۲۹ گانه
         if self.on_entry_callback:

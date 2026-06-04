@@ -1007,7 +1007,7 @@
             <!-- Left Workspace: Start training form -->
             <div class="glass-panel">
                 <div class="panel-header">
-                    <div class="panel-title" id="train-title">ثبت ارز و آموزش مدل شبکه عصبی جدید (1m LSTM-PPO)</div>
+                    <div class="panel-title" id="train-title">ثبت ارز و آموزش متوالی مدل‌های Ensemble (PPO + SAC + TD3)</div>
                 </div>
                 <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;" id="train-description">
                     برای اضافه کردن ارز جدید به سیستم یا ارتقای کیفیت مدل، نماد آن را وارد کنید. اگر ارز به عنوان
@@ -1066,7 +1066,7 @@
                         <div class="panel-title">مدل‌های عصبی آماده در پوشه سیستم (Trained Models)</div>
                     </div>
                     <div style="font-size: 12px; color: var(--text-muted);">
-                        ارزهای زیر دارای مدل شبکه عصبی LSTM-PPO فعال در حافظه پروژه هستند و آماده اتصال مستقیم به موتور
+                        ارزهای زیر دارای مدل‌های شبکه عصبی فعال در حافظه پروژه هستند و آماده اتصال مستقیم به موتور
                         اسکلپر می‌باشند:
                     </div>
                     <div class="model-chip-grid" id="trained-models-grid">
@@ -1774,8 +1774,8 @@
                     if (trainStepsGroup) trainStepsGroup.style.display = "block";
                     if (trainSubmitBtn) trainSubmitBtn.innerHTML = "🚀 ثبت و افزودن مستقیم جفت ارز به موتور YoYo";
                 } else {
-                    if (trainTitleEl) trainTitleEl.innerText = "ثبت ارز و آموزش مدل شبکه عصبی جدید (1m LSTM-PPO)";
-                    if (trainDescEl) trainDescEl.innerText = "برای اضافه کردن ارز جدید به سیستم یا ارتقای کیفیت مدل، نماد آن را وارد کنید. اگر ارز به عنوان میم‌کوین (مانند POPCAT، BOME) طبقه‌بندی شود، سیستم به طور خودکار داده‌های تاریخی ۱ دقیقه‌ای (1m) را برای آموزش بهینه‌تر واکشی می‌کند.";
+                    if (trainTitleEl) trainTitleEl.innerText = "ثبت ارز و آموزش متوالی مدل‌های Ensemble (PPO + SAC + TD3)";
+                    if (trainDescEl) trainDescEl.innerText = "برای اضافه کردن ارز جدید به سیستم یا ارتقای کیفیت مدل، نماد آن را وارد کنید. اگر ارز به عنوان میم‌کوین (مانند POPCAT، BOME) طبقه‌بندی شود، سیستم به طور خودکار داده‌های تاریخی ۱ دقیقه‌ای (1m) را برای آموزش متوالی مدل‌های PPO، SAC و TD3 واکشی می‌کند.";
                     if (trainStepsGroup) trainStepsGroup.style.display = "block";
                     if (trainSubmitBtn) trainSubmitBtn.innerHTML = "🚀 شروع فرآیند واکشی اطلاعات و آموزش شبکه عصبی";
                 }
@@ -1809,7 +1809,16 @@
                             <div class="asset-main">
                                 <div class="asset-name">
                                     ${b.symbol}
-                                    ${b.has_model ? '<span class="tag-model">LSTM-PPO آماده</span>' : '<span class="tag-model" style="background:rgba(255,0,0,0.05);color:var(--neon-red);border-color:rgba(255,0,0,0.1)">هوش مصنوعی فاقد مدل</span>'}
+                                    ${b.has_model ? `
+                                        <div style="display:inline-flex; gap:3px; align-items:center; vertical-align:middle; margin-right:4px;">
+                                            ${b.has_ppo ? '<span class="tag-model" style="background:rgba(0,122,255,0.1);color:#007AFF;border-color:rgba(0,122,255,0.2)">PPO</span>' : ''}
+                                            ${b.has_sac ? '<span class="tag-model" style="background:rgba(175,82,222,0.1);color:#AF52DE;border-color:rgba(175,82,222,0.2)">SAC</span>' : ''}
+                                            ${b.has_td3 ? '<span class="tag-model" style="background:rgba(94,92,230,0.1);color:#5E5CE6;border-color:rgba(94,92,230,0.2)">TD3</span>' : ''}
+                                            ${b.has_old_model && !b.has_ppo && !b.has_sac && !b.has_td3 ? '<span class="tag-model" style="background:rgba(0,223,216,0.1);color:var(--accent-cyan);border-color:rgba(0,223,216,0.2)">LSTM-PPO</span>' : ''}
+                                            ${(b.has_ppo && b.has_sac && b.has_td3) ? '<span class="tag-model" style="background:rgba(52,199,89,0.15);color:#34C759;border-color:rgba(52,199,89,0.3); font-size:8px;">ENSEMBLE</span>' : ''}
+                                            ${b.needs_retrain ? `<span class="tag-model" style="background:rgba(255,149,0,0.1);color:#FF9500;border-color:rgba(255,149,0,0.2);cursor:help;" title="${b.retrain_reason}">⚠️ نیاز به آموزش مجدد (${b.model_age_days} روز)</span>` : ''}
+                                        </div>
+                                    ` : '<span class="tag-model" style="background:rgba(255,0,0,0.05);color:var(--neon-red);border-color:rgba(255,0,0,0.1)">هوش مصنوعی فاقد مدل</span>'}
                                 </div>
                                 <div class="asset-status ${statusClass}">${statusText}</div>
                             </div>

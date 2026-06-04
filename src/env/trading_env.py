@@ -38,12 +38,17 @@ class FuturesTradingEnv(gym.Env):
         # Pre-process historical signals if in training mode
         if not self.is_live and df is not None:
             self._preprocess_data()
+            
+        # Frame stacking configurations
+        from collections import deque
+        self.n_stack = 10
+        self.obs_history = deque(maxlen=self.n_stack)
         
         # Action space: target inventory ratio in [-1.0, 1.0] (1.0 = Max Long, -1.0 = Max Short, 0.0 = Flat)
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float64)
         
-        # Observation space (12 features)
-        num_features = 12
+        # Observation space (12 features * 10 stacked frames = 120 features)
+        num_features = 12 * self.n_stack
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -146,13 +151,19 @@ class FuturesTradingEnv(gym.Env):
             self.peak_portfolio_value = 100000.0
             self.cash = 100000.0
             
-        observation = self._get_observation()
+        # Reset observation history buffer
+        obs = self._get_observation()
+        self.obs_history.clear()
+        for _ in range(self.n_stack):
+            self.obs_history.append(obs)
+            
+        stacked_obs = np.concatenate(list(self.obs_history))
         info = {
             "portfolio_value": self.portfolio_value,
             "cash": self.cash,
             "position": self.position
         }
-        return observation, info
+        return stacked_obs, info
 
     def step(self, action):
         # Action is continuous [-1.0, 1.0] representing target position ratio
@@ -175,7 +186,10 @@ class FuturesTradingEnv(gym.Env):
             self.peak_portfolio_value = max(self.peak_portfolio_value, self.portfolio_value)
             self.cash = account["margin_balance"]
             
-            observation = self._get_observation()
+            obs = self._get_observation()
+            self.obs_history.append(obs)
+            stacked_obs = np.concatenate(list(self.obs_history))
+            
             reward = 0.0 # live rewards are calculated from real-time asset appreciation
             terminated = False
             truncated = False
@@ -257,7 +271,10 @@ class FuturesTradingEnv(gym.Env):
                 reward -= 0.0005
                 
             self.portfolio_value = new_portfolio_value
-            observation = self._get_observation() if not terminated else np.zeros(self.observation_space.shape, dtype=np.float64)
+            
+            obs = self._get_observation() if not terminated else np.zeros(12, dtype=np.float64)
+            self.obs_history.append(obs)
+            stacked_obs = np.concatenate(list(self.obs_history))
             
             info = {
                 "portfolio_value": self.portfolio_value,
@@ -267,7 +284,7 @@ class FuturesTradingEnv(gym.Env):
                 "transaction_fee": transaction_fee + terminal_liquidation_fee,
                 "slippage": slippage_rate * ref_price
             }
-        return observation, reward, terminated, truncated, info
+        return stacked_obs, reward, terminated, truncated, info
 
     def _build_volume_bars(self, raw_df: pd.DataFrame) -> pd.DataFrame:
         """

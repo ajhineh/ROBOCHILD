@@ -393,9 +393,41 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 dex_buy = sum([t["amount"] for t in dex_trades_10s if t["side"] == "buy"])
                 dex_sell = sum([t["amount"] for t in dex_trades_10s if t["side"] == "sell"])
 
-                # بررسی مدل شبکه عصبی آموزش‌دیده
+                # بررسی مدل شبکه عصبی آموزش‌دیده (پشتیبانی از Ensemble و PPO تک عاملی قدیمی)
                 symbol_clean = sym.split('/')[0].lower()
-                has_model = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_final.zip")
+                
+                has_ppo = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_ppo_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_ppo_best.zip")
+                has_sac = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_sac_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_sac_best.zip")
+                has_td3 = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_td3_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_td3_best.zip")
+                has_old_model = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_best.zip")
+                
+                has_model = has_ppo or has_old_model
+                
+                # منطق Rolling Window: ارزیابی طول عمر مدل‌ها بر مبنای آخرین زمان تغییر فایل PPO
+                model_age_days = -1
+                needs_retrain = False
+                retrain_reason = ""
+                
+                model_paths_to_check = [
+                    f"models/ppo_volume_bars_child_{symbol_clean}_ppo_final.zip",
+                    f"models/ppo_volume_bars_child_{symbol_clean}_ppo_best.zip",
+                    f"models/ppo_volume_bars_child_{symbol_clean}_final.zip",
+                    f"models/ppo_volume_bars_child_{symbol_clean}_best.zip"
+                ]
+                
+                trained_time = 0
+                for path in model_paths_to_check:
+                    if os.path.exists(path):
+                        mtime = os.path.getmtime(path)
+                        if mtime > trained_time:
+                            trained_time = mtime
+                            
+                if trained_time > 0:
+                    model_age_days = int((time.time() - trained_time) / (24 * 3600))
+                    # حد آستانه ۳۰ روز برای هشدار آموزش مجدد
+                    if model_age_days >= 30:
+                        needs_retrain = True
+                        retrain_reason = f"مدل {model_age_days} روز پیش آموزش دیده است. بر اساس منطق Rolling Window، آموزش مجدد توصیه می‌شود."
 
                 bot_data = {
                     "symbol": sym,
@@ -408,6 +440,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     "spoof_type": "none",
                     "mid_price": 0.0,
                     "has_model": has_model,
+                    "has_ppo": has_ppo,
+                    "has_sac": has_sac,
+                    "has_td3": has_td3,
+                    "has_old_model": has_old_model,
+                    "model_age_days": model_age_days,
+                    "needs_retrain": needs_retrain,
+                    "retrain_reason": retrain_reason,
                     "leverage": active["leverage"] if active else 15  # default leverage is 15 in YoYo
                 }
 
@@ -629,7 +668,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             }, 400)
             return
 
-        model_file = f"models/ppo_volume_bars_child_{symbol_clean}_best.zip"
+        model_file = f"models/ppo_volume_bars_child_{symbol_clean}_ppo_best.zip"
+        if not os.path.exists(model_file):
+            model_file = f"models/ppo_volume_bars_child_{symbol_clean}_ppo_final.zip"
+        # Fallback to single old models if ensemble models do not exist
+        if not os.path.exists(model_file):
+            model_file = f"models/ppo_volume_bars_child_{symbol_clean}_best.zip"
         if not os.path.exists(model_file):
             model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
 
@@ -715,13 +759,21 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         deleted_files = []
 
         if delete_model:
-            # حذف فایل‌ها در صورت لزوم
-            model_zip_final = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
-            model_zip_best = f"models/ppo_volume_bars_child_{symbol_clean}_best.zip"
-            model_pkl = f"models/ppo_volume_bars_child_{symbol_clean}_vec_normalize.pkl"
-            progress_json = f"models/progress_ppo_volume_bars_child_{symbol_clean}.json"
+            # حذف تمامی فایل‌های مربوط به مدل‌های Ensemble (PPO, SAC, TD3)
+            files_to_delete = []
+            for algo in ["ppo", "sac", "td3"]:
+                files_to_delete.append(f"models/ppo_volume_bars_child_{symbol_clean}_{algo}_final.zip")
+                files_to_delete.append(f"models/ppo_volume_bars_child_{symbol_clean}_{algo}_best.zip")
+                files_to_delete.append(f"models/ppo_volume_bars_child_{symbol_clean}_{algo}_vec_normalize.pkl")
+            # برای سازگاری عقب‌رو، فایل‌های قدیمی را نیز حذف می‌کنیم
+            files_to_delete.extend([
+                f"models/ppo_volume_bars_child_{symbol_clean}_final.zip",
+                f"models/ppo_volume_bars_child_{symbol_clean}_best.zip",
+                f"models/ppo_volume_bars_child_{symbol_clean}_vec_normalize.pkl",
+                f"models/progress_ppo_volume_bars_child_{symbol_clean}.json"
+            ])
             
-            for file_path in [model_zip_final, model_zip_best, model_pkl, progress_json]:
+            for file_path in files_to_delete:
                 if os.path.exists(file_path):
                     try:
                         os.remove(file_path)

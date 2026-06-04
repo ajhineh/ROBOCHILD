@@ -24,20 +24,21 @@ class DummyEnvForVecNormalize(gym.Env):
     """
     محیط فرضی ساده جهت راه‌اندازی و بارگذاری آمارهای مقیاس‌گذاری VecNormalize.
     """
-    def __init__(self):
+    def __init__(self, shape: int = 120):
         super().__init__()
         self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(12,), dtype=np.float64
+            low=-np.inf, high=np.inf, shape=(shape,), dtype=np.float64
         )
         self.action_space = gym.spaces.Box(
             low=-1.0, high=1.0, shape=(1,), dtype=np.float64
         )
+        self.shape_val = shape
 
     def reset(self, seed=None, options=None):
-        return np.zeros(12, dtype=np.float64), {}
+        return np.zeros(self.shape_val, dtype=np.float64), {}
 
     def step(self, action):
-        return np.zeros(12, dtype=np.float64), 0.0, False, False, {}
+        return np.zeros(self.shape_val, dtype=np.float64), 0.0, False, False, {}
 
 
 class RLModelLoader:
@@ -106,7 +107,7 @@ class RLModelLoader:
         if os.path.exists(stats_path):
             try:
                 # ایجاد محیط فرضی جهت الصاق آمار
-                dummy_venv = DummyVecEnv([lambda: DummyEnvForVecNormalize()])
+                dummy_venv = DummyVecEnv([lambda: DummyEnvForVecNormalize(shape=12)])
                 normalized_env = VecNormalize.load(stats_path, dummy_venv)
                 # اطمینان از اینکه آپدیت آمار در فاز اجرا بسته است
                 normalized_env.training = False
@@ -118,6 +119,93 @@ class RLModelLoader:
             logger.warning(f"⚠️ VecNormalize statistics file not found at {stats_path}. Observations will not be scaled.")
             
         return model, normalized_env
+
+    def load_ensemble_models(self, symbol: str) -> dict:
+        """
+        بارگذاری همزمان مدل‌های PPO، SAC و TD3 به همراه آمارهای نرمال‌سازی مربوطه.
+        """
+        symbol_clean = symbol.split('/')[0].lower()
+        models = {}
+        
+        for algo in ["ppo", "sac", "td3"]:
+            model_filename = f"ppo_volume_bars_child_{symbol_clean}_{algo}_best.zip"
+            stats_filename = f"ppo_volume_bars_child_{symbol_clean}_{algo}_vec_normalize.pkl"
+            
+            model_path = os.path.join(self.models_dir, model_filename)
+            stats_path = os.path.join(self.models_dir, stats_filename)
+            
+            # بررسی فایل‌های فالبک نهایی
+            if not os.path.exists(model_path):
+                logger.warning(f"⚠️ Dedicated Ensemble {algo.upper()} best model for {symbol} not found. Trying fallback to final model...")
+                model_filename = f"ppo_volume_bars_child_{symbol_clean}_{algo}_final.zip"
+                model_path = os.path.join(self.models_dir, model_filename)
+                
+            # در صورتی که فایل انسیبل پیدا نشد و در فاز لود PPO بودیم، تلاش برای لود مدل تکی قدیمی
+            if not os.path.exists(model_path) and algo == "ppo":
+                logger.warning(f"⚠️ Dedicated Ensemble PPO not found. Checking for old single PPO models...")
+                model_filename = f"ppo_volume_bars_child_{symbol_clean}_best.zip"
+                stats_filename = f"ppo_volume_bars_child_{symbol_clean}_vec_normalize.pkl"
+                model_path = os.path.join(self.models_dir, model_filename)
+                stats_path = os.path.join(self.models_dir, stats_filename)
+                if not os.path.exists(model_path):
+                    model_filename = f"ppo_volume_bars_child_{symbol_clean}_final.zip"
+                    model_path = os.path.join(self.models_dir, model_filename)
+            
+            if not os.path.exists(model_path):
+                logger.error(f"❌ Ensemble model {algo.upper()} not found for {symbol} at {model_path}")
+                models[algo] = (None, None)
+                continue
+                
+            model = None
+            try:
+                if algo == "ppo":
+                    if USING_RECURRENT:
+                        try:
+                            model = RecurrentPPO.load(model_path)
+                            logger.info(f"🟢 Loaded RecurrentPPO (PPO-LSTM) for Ensemble from {os.path.basename(model_path)}")
+                        except Exception:
+                            model = PPO.load(model_path)
+                            logger.info(f"🟢 Loaded standard PPO for Ensemble from {os.path.basename(model_path)}")
+                    else:
+                        model = PPO.load(model_path)
+                        logger.info(f"🟢 Loaded standard PPO for Ensemble from {os.path.basename(model_path)}")
+                elif algo == "sac":
+                    from stable_baselines3 import SAC
+                    model = SAC.load(model_path)
+                    logger.info(f"🟢 Loaded SAC model for Ensemble from {os.path.basename(model_path)}")
+                elif algo == "td3":
+                    from stable_baselines3 import TD3
+                    model = TD3.load(model_path)
+                    logger.info(f"🟢 Loaded TD3 model for Ensemble from {os.path.basename(model_path)}")
+            except Exception as e:
+                logger.error(f"❌ Failed to load Ensemble model weights for {algo.upper()}: {e}")
+                models[algo] = (None, None)
+                continue
+                
+            # بارگذاری فایل VecNormalize متناظر
+            normalized_env = None
+            if os.path.exists(stats_path):
+                try:
+                    # بررسی کنید آیا فایل آماری قدیمی است (اندازه ۱۲) یا جدید (اندازه ۱۲۰)
+                    # برای فایل‌های انسیبل اندازه ۱۲۰ و برای مدل تکی قدیمی اندازه ۱۲ است
+                    import pickle
+                    with open(stats_path, "rb") as f_stats:
+                        stats_data = pickle.load(f_stats)
+                    stats_shape = stats_data.obs_rms.mean.shape[0] if hasattr(stats_data, 'obs_rms') else 120
+                    
+                    dummy_venv = DummyVecEnv([lambda: DummyEnvForVecNormalize(shape=stats_shape)])
+                    normalized_env = VecNormalize.load(stats_path, dummy_venv)
+                    normalized_env.training = False
+                    normalized_env.norm_reward = False
+                    logger.info(f"🟢 Loaded VecNormalize statistics for {algo.upper()} with shape {stats_shape} from {os.path.basename(stats_path)}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to load VecNormalize statistics for {algo.upper()}: {e}")
+            else:
+                logger.warning(f"⚠️ VecNormalize statistics file not found for {algo.upper()} at {stats_path}")
+                
+            models[algo] = (model, normalized_env)
+            
+        return models
 
     @staticmethod
     def normalize_observation(obs: np.ndarray, normalized_env: Optional[VecNormalize]) -> np.ndarray:
