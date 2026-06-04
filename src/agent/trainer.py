@@ -41,34 +41,53 @@ class ProgressCallback(BaseCallback):
         self.progress_file = os.path.join("models", f"progress_{model_name}.json")
         self.check_stop_fn = check_stop_fn
         self.last_write_step = 0
+        self.start_timesteps = 0
+        self.was_aborted = False
+        
+    def _on_training_start(self) -> None:
+        self.start_timesteps = self.model.num_timesteps
+        try:
+            with open(self.progress_file, "w") as f:
+                json.dump({
+                    "model_name": self.model_name,
+                    "current_step": 0,
+                    "total_steps": self.total_timesteps,
+                    "percentage": 0.0,
+                    "status": "training"
+                }, f)
+        except Exception:
+            pass
         
     def _on_step(self) -> bool:
         # Check if external stop request was triggered
         if self.check_stop_fn is not None and self.check_stop_fn():
             print(f"[Agent Trainer] Stop request detected. Halting training for {self.model_name}...")
+            self.was_aborted = True
+            steps_trained = self.num_timesteps - self.start_timesteps
             try:
                 with open(self.progress_file, "w") as f:
                     json.dump({
                         "model_name": self.model_name,
-                        "current_step": self.num_timesteps,
+                        "current_step": steps_trained,
                         "total_steps": self.total_timesteps,
-                        "percentage": round(min(100.0, (self.num_timesteps / self.total_timesteps) * 100.0), 2),
+                        "percentage": round(min(100.0, (steps_trained / self.total_timesteps) * 100.0), 2),
                         "status": "stopped"
                     }, f)
             except Exception:
                 pass
             return False # Returning False stops stable-baselines3 learning loop
 
+        steps_trained = self.num_timesteps - self.start_timesteps
         # Throttling disk I/O progress updates (write only once every 500 steps)
         # to prevent high-frequency write locks and resolve Windows file access conflicts in UI
-        if self.num_timesteps - self.last_write_step >= 500 or self.num_timesteps == 1:
-            self.last_write_step = self.num_timesteps
-            pct = min(100.0, (self.num_timesteps / self.total_timesteps) * 100.0)
+        if steps_trained - self.last_write_step >= 500 or steps_trained == 1:
+            self.last_write_step = steps_trained
+            pct = min(100.0, (steps_trained / self.total_timesteps) * 100.0)
             try:
                 with open(self.progress_file, "w") as f:
                     json.dump({
                         "model_name": self.model_name,
-                        "current_step": self.num_timesteps,
+                        "current_step": steps_trained,
                         "total_steps": self.total_timesteps,
                         "percentage": round(pct, 2),
                         "status": "training"
@@ -106,26 +125,68 @@ def train_agent(
     model_save_dir: str = "models",
     tb_log_dir: str = "tb_logs",
     model_name: str = "ppo_volume_bars_child",
-    check_stop_fn = None
+    check_stop_fn = None,
+    resume: bool = False,
+    learning_rate_val = None
 ):
     """
     Trains a PPO or RecurrentPPO agent on the custom futures trading environment.
+    Supports resuming existing models and custom learning rates.
     Uses Vector Normalization for observation stability.
-    
-    Args:
-        train_df: Dataframe containing training time-series data.
-        val_df: Dataframe containing validation time-series data.
-        total_timesteps: Number of timesteps to train.
-        model_save_dir: Directory to save trained models.
-        tb_log_dir: TensorBoard log directory.
-        model_name: Base name for saved model and stats.
-        check_stop_fn: Optional function returning True to stop training gracefully.
     """
     os.makedirs(model_save_dir, exist_ok=True)
     os.makedirs(tb_log_dir, exist_ok=True)
     
     # Extract clean symbol from model_name
     symbol_clean = model_name.replace("ppo_volume_bars_child_", "").upper()
+
+    # Setup custom learning rate schedule
+    if learning_rate_val is None:
+        lr_input = lr_schedule
+    elif isinstance(learning_rate_val, float):
+        lr_input = learning_rate_val
+    elif isinstance(learning_rate_val, str):
+        val_str = learning_rate_val.lower().strip()
+        if val_str.startswith("linear_"):
+            try:
+                start_lr = float(val_str.split("_")[1])
+                end_lr = start_lr / 6.0
+                def make_linear_decay(s_lr, e_lr):
+                    return lambda progress_remaining: e_lr + (s_lr - e_lr) * progress_remaining
+                lr_input = make_linear_decay(start_lr, end_lr)
+            except Exception as e:
+                print(f"[Agent Trainer] Error parsing linear LR: {e}. Falling back to default lr_schedule.")
+                lr_input = lr_schedule
+        elif val_str.startswith("constant_"):
+            try:
+                lr_input = float(val_str.split("_")[1])
+            except Exception as e:
+                print(f"[Agent Trainer] Error parsing constant LR: {e}. Falling back to default lr_schedule.")
+                lr_input = lr_schedule
+        else:
+            try:
+                lr_input = float(val_str)
+            except ValueError:
+                lr_input = lr_schedule
+    else:
+        lr_input = learning_rate_val
+
+    model_path = None
+    final_path = os.path.join(model_save_dir, f"{model_name}_final.zip")
+    best_path = os.path.join(model_save_dir, f"{model_name}_best.zip")
+    stats_path = os.path.join(model_save_dir, f"{model_name}_vec_normalize.pkl")
+    
+    if resume:
+        if os.path.exists(final_path):
+            model_path = final_path
+        elif os.path.exists(best_path):
+            model_path = best_path
+            
+        if model_path:
+            print(f"[Agent Trainer] Resuming training. Loading existing model from {model_path}...")
+        else:
+            print(f"[Agent Trainer] Warning: Resume is set to True but no existing model was found at {final_path} or {best_path}. Starting training from scratch.")
+            resume = False
 
     # 1. Initialize vectorized environments
     def make_train_env():
@@ -137,19 +198,26 @@ def train_agent(
     train_env = DummyVecEnv([make_train_env])
     val_env = DummyVecEnv([make_val_env])
     
-    # Normalize observations (and keep track of statistics)
-    train_env = VecNormalize(train_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
-    # Use training environment stats for validation normalization (don't update stats during validation)
-    val_env = VecNormalize(val_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
-    
-    # Synchronize stats
-    val_env.obs_rms = train_env.obs_rms
-    val_env.training = False # Turn off updates for evaluation env
+    if resume and os.path.exists(stats_path):
+        print(f"[Agent Trainer] Loading VecNormalize statistics from {stats_path}...")
+        train_env = VecNormalize.load(stats_path, train_env)
+        # Ensure training is True to continue updating stats
+        train_env.training = True
+        
+        val_env = VecNormalize.load(stats_path, val_env)
+        val_env.training = False # Don't update validation stats
+    else:
+        # Normalize observations
+        train_env = VecNormalize(train_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
+        val_env = VecNormalize(val_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
+        # Synchronize stats
+        val_env.obs_rms = train_env.obs_rms
+        val_env.training = False # Turn off updates for evaluation env
     
     # 2. Setup agent policy & hyperparameters
     # Optimized parameters for high-frequency trading with long-term trend awareness (gamma=0.98)
     hyperparams = {
-        "learning_rate": lr_schedule,
+        "learning_rate": lr_input,
         "n_steps": 2048,
         "batch_size": 128,
         "n_epochs": 10,
@@ -163,33 +231,50 @@ def train_agent(
         "tensorboard_log": tb_log_dir if HAS_TENSORBOARD else None
     }
     
-    if USING_RECURRENT:
-        # LSTM specific policy network with shared memory & 128 units
-        policy = "MlpLstmPolicy"
-        policy_kwargs = dict(
-            lstm_hidden_size=128,
-            n_lstm_layers=1,
-            shared_lstm=True,
-            enable_critic_lstm=False,
-            net_arch=dict(pi=[64, 64], vf=[64, 64])
-        )
-        model = RecurrentPPO(
-            policy,
-            train_env,
-            policy_kwargs=policy_kwargs,
-            **hyperparams
-        )
-    else:
-        policy = "MlpPolicy"
-        policy_kwargs = dict(
-            net_arch=dict(pi=[64, 64], vf=[64, 64])
-        )
-        model = PPO(
-            policy,
-            train_env,
-            policy_kwargs=policy_kwargs,
-            **hyperparams
-        )
+    model = None
+    if resume and model_path:
+        custom_objects = {}
+        if lr_input is not None:
+            custom_objects["learning_rate"] = lr_input
+            
+        try:
+            if USING_RECURRENT:
+                model = RecurrentPPO.load(model_path, env=train_env, custom_objects=custom_objects)
+            else:
+                model = PPO.load(model_path, env=train_env, custom_objects=custom_objects)
+            print(f"[Agent Trainer] Model successfully loaded for resume.")
+        except Exception as e:
+            print(f"[Agent Trainer] Error loading model: {e}. Falling back to starting from scratch.")
+            resume = False
+
+    if model is None:
+        if USING_RECURRENT:
+            # LSTM specific policy network with shared memory & 128 units
+            policy = "MlpLstmPolicy"
+            policy_kwargs = dict(
+                lstm_hidden_size=128,
+                n_lstm_layers=1,
+                shared_lstm=True,
+                enable_critic_lstm=False,
+                net_arch=dict(pi=[64, 64], vf=[64, 64])
+            )
+            model = RecurrentPPO(
+                policy,
+                train_env,
+                policy_kwargs=policy_kwargs,
+                **hyperparams
+            )
+        else:
+            policy = "MlpPolicy"
+            policy_kwargs = dict(
+                net_arch=dict(pi=[64, 64], vf=[64, 64])
+            )
+            model = PPO(
+                policy,
+                train_env,
+                policy_kwargs=policy_kwargs,
+                **hyperparams
+            )
         
     # 3. Setup Eval Callback
     # Monitor validation performance and save the best model
@@ -208,26 +293,15 @@ def train_agent(
     print(f"[Agent Trainer] Starting training for {total_timesteps} steps...")
     progress_callback = ProgressCallback(model_name=model_name, total_timesteps=total_timesteps, check_stop_fn=check_stop_fn)
     
-    # Track if training was aborted early
-    progress_callback.was_aborted = False
-    
-    # Patch the _on_step to set was_aborted flag
-    orig_on_step = progress_callback._on_step
-    def patched_on_step():
-        res = orig_on_step()
-        if not res:
-            progress_callback.was_aborted = True
-        return res
-    progress_callback._on_step = patched_on_step
-
     model.learn(
         total_timesteps=total_timesteps,
         callback=[eval_callback, progress_callback],
-        tb_log_name=model_name
+        tb_log_name=model_name,
+        reset_num_timesteps=not resume
     )
     
     # If training was aborted, do NOT save final weights to prevent corruption of previous fully trained files
-    if getattr(progress_callback, "was_aborted", False):
+    if progress_callback.was_aborted:
         print(f"[Agent Trainer] Training was ABORTED early by user request. Skipping final model file save to preserve previous fully trained models.")
         return None, train_env
 
@@ -243,7 +317,6 @@ def train_agent(
         shutil.move(best_temp_path, best_target_path + ".zip")
         print(f"[Agent Trainer] Best evaluation model renamed to {best_target_path}.zip")
     
-    stats_path = os.path.join(model_save_dir, f"{model_name}_vec_normalize.pkl")
     train_env.save(stats_path)
     
     print(f"[Agent Trainer] Training finished! Model saved to {final_model_path}")

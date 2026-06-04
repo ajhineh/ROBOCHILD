@@ -102,7 +102,7 @@ def scan_existing_models():
     return list(set(available))
 
 
-def background_train_orchestrator(symbol: str, steps: int = 200000):
+def background_train_orchestrator(symbol: str, steps: int = 200000, resume: bool = False, learning_rate: str = "linear_0.0003"):
     """اجرای غیرمسدودکننده (Background Thread) فرآیند واکشی داده‌های تاریخی و آموزش مدل یادگیری تقویت‌پذیر"""
     global active_trainings, training_stops
     symbol = re.sub(r'[^a-zA-Z0-9/:-]', '', symbol).upper().strip()
@@ -164,7 +164,9 @@ def background_train_orchestrator(symbol: str, steps: int = 200000):
             model_save_dir="models",
             tb_log_dir="tb_logs",
             model_name=f"ppo_volume_bars_child_{symbol_clean}",
-            check_stop_fn=check_stop
+            check_stop_fn=check_stop,
+            resume=resume,
+            learning_rate_val=learning_rate
         )
 
         if check_stop():
@@ -628,8 +630,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         if not os.path.exists(model_file):
             model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
 
-        # ۱. در صورت وجود مدل آموزش‌دیده، فوراً ارز را در سیستم زنده ثبت و بازنشانی می‌کنیم
-        if os.path.exists(model_file):
+        resume = bool(body.get("resume", False))
+        learning_rate = body.get("learning_rate", "linear_0.0003")
+
+        # ۱. در صورت وجود مدل آموزش‌دیده و عدم درخواست از سرگیری مجدد، فوراً ارز را در سیستم زنده ثبت و بازنشانی می‌کنیم
+        if os.path.exists(model_file) and not resume:
             if symbol in Config.SYMBOLS:
                 self.send_json({"success": True, "message": f"جفت ارز {symbol} از قبل فعال و در حال ترید است."})
             else:
@@ -671,20 +676,32 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                         
                 self.send_json({"success": True, "message": f"مدل هوش مصنوعی یافت شد! جفت ارز {symbol} به سیستم ترید زنده متصل شد."})
         
-        # ۲. در صورت نبود مدل، فرآیند آموزش ۱ دقیقه‌ای یادگیری تقویت‌پذیر را روی بایننس استارت می‌زنیم
+        # ۲. در صورت نبود مدل یا درخواست از سرگیری مجدد آموزش، فرآیند یادگیری را در پس‌زمینه استارت می‌زنیم
         else:
             steps = int(body.get("steps", 200000))
             is_meme = symbol_clean in ["bome", "pepe", "doge", "shib", "wif", "bonk", "floki", "popcat"]
             timeframe = "1m" if is_meme else "5m"
 
-            log_event(f"🔍 مدل شبکه عصبی برای {symbol} یافت نشد. تریگر آموزش جدید در پس‌زمینه...")
+            if resume:
+                log_event(f"🔄 درخواست از سرگیری (Fine-tune) مدل {symbol} با {steps:,} گام جدید و نرخ یادگیری {learning_rate}...")
+            else:
+                log_event(f"🔍 مدل شبکه عصبی برای {symbol} یافت نشد یا درخواست ساخت مجدد صادر شده است. تریگر آموزش جدید در پس‌زمینه...")
             
-            thread = threading.Thread(target=background_train_orchestrator, args=(symbol, steps), daemon=True)
+            thread = threading.Thread(
+                target=background_train_orchestrator, 
+                args=(symbol, steps), 
+                kwargs={"resume": resume, "learning_rate": learning_rate},
+                daemon=True
+            )
             thread.start()
+
+            msg = f"فرآیند آموزش شبکه عصبی با بودجه {steps:,} گام استارت خورد."
+            if resume:
+                msg = f"فرآیند از سرگیری و ارتقای مدل {symbol} با {steps:,} گام جدید استارت خورد."
 
             self.send_json({
                 "success": True,
-                "message": f"مدل آماده یافت نشد. ارز به عنوان {'Meme Coin (1m)' if is_meme else 'Strong Coin (5m)'} طبقه‌بندی شد. فرآیند واکشی و آموزش شبکه عصبی با بودجه {steps:,} گام استارت خورد."
+                "message": msg
             })
 
     def handle_api_remove_symbol(self, body):

@@ -1031,8 +1031,30 @@
                             <option value="1200000">1,200,000 گام (بهینه دوقلوها - تحقیق)</option>
                         </select>
                     </div>
+                    <div class="switch-container" style="margin-top: 15px; margin-bottom: 15px;">
+                        <span class="switch-label" style="font-weight: bold; color: var(--text-color);">از سرگیری مجدد آموزش مدل موجود (Resume / Fine-tune)</span>
+                        <label class="switch">
+                            <input type="checkbox" id="train-resume">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label>تنظیم نرخ یادگیری شبکه عصبی (Learning Rate)</label>
+                        <select id="train-lr" class="form-control">
+                            <option value="linear_0.0003" selected>کاهشی خطی (شروع 3e-4 تا 5e-5 - پیش‌فرض)</option>
+                            <option value="linear_0.00015">کاهشی خطی نصف (شروع 1.5e-4 تا 2.5e-5 - برای BOME)</option>
+                            <option value="constant_0.0003">ثابت 0.0003 (استاندارد)</option>
+                            <option value="constant_0.00015">ثابت 0.00015 (پیشنهادی برای همگرایی آرام)</option>
+                            <option value="constant_0.00005">ثابت 0.00005 (بسیار محافظه‌کارانه)</option>
+                            <option value="custom">سفارشی (تایپ دستی)...</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="train-lr-custom-container" style="margin-top: 10px; display: none;">
+                        <label>مقدار نرخ یادگیری سفارشی (مانند 0.0001)</label>
+                        <input type="number" id="train-lr-custom" class="form-control" step="0.00001" min="0.000001" max="0.01" value="0.00015">
+                    </div>
                     <button class="btn-submit" id="train-submit-btn"
-                        style="background: linear-gradient(135deg, var(--accent-cyan), var(--secondary-glow));"
+                        style="background: linear-gradient(135deg, var(--accent-cyan), var(--secondary-glow)); margin-top: 15px;"
                         onclick="startTraining()">🚀 شروع فرآیند واکشی اطلاعات و آموزش شبکه عصبی</button>
                 </div>
             </div>
@@ -2036,6 +2058,18 @@
         async function startTraining() {
             const symbol = document.getElementById("train-symbol").value.trim();
             const steps = parseInt(document.getElementById("train-steps").value);
+            const resume = document.getElementById("train-resume").checked;
+            const lrSelect = document.getElementById("train-lr").value;
+            let learningRate = lrSelect;
+            
+            if (lrSelect === "custom") {
+                const customVal = parseFloat(document.getElementById("train-lr-custom").value);
+                if (isNaN(customVal) || customVal <= 0) {
+                    showToast("لطفاً نرخ یادگیری معتبری وارد کنید.", true);
+                    return;
+                }
+                learningRate = "constant_" + customVal;
+            }
 
             if (!symbol) {
                 showToast("لطفاً نام جفت ارز را معتبر وارد کنید.", true);
@@ -2046,7 +2080,12 @@
                 const response = await fetch(`${API_BASE}/api/add_symbol`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbol: symbol, steps: steps })
+                    body: JSON.stringify({ 
+                        symbol: symbol, 
+                        steps: steps,
+                        resume: resume,
+                        learning_rate: learningRate
+                    })
                 });
                 const res = await response.json();
 
@@ -2868,6 +2907,18 @@
         window.settingsLoaded = false;
         window.statusRequestId = 0;  // شناسه‌ی درخواست برای جلوگیری از race condition (پاسخ‌های قدیمی را نادیده می‌گیریم)
         bindFilterCheckboxes();
+        
+        // Handle custom learning rate display toggle
+        const trainLrEl = document.getElementById("train-lr");
+        if (trainLrEl) {
+            trainLrEl.addEventListener("change", function() {
+                const container = document.getElementById("train-lr-custom-container");
+                if (container) {
+                    container.style.display = this.value === "custom" ? "block" : "none";
+                }
+            });
+        }
+
         updateStatus();
         fetchLogs();
         fetchTrainingStatus();
