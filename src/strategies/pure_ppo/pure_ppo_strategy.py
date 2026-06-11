@@ -88,6 +88,9 @@ class PurePPOStrategy:
         self.volume_ticks_history: Dict[str, List[dict]] = {sym: [] for sym in symbols}
         self.volume_bar_completed: Dict[str, bool] = {sym: False for sym in symbols}
         self.volume_bar_price: Dict[str, float] = {sym: 0.0 for sym in symbols}
+        
+        # بافر قیمت‌های آخرین کندل‌های حجمی تکمیل شده جهت محاسبه نوسان پویا
+        self.completed_bar_prices: Dict[str, deque] = {sym: deque(maxlen=288) for sym in symbols}
 
         # تاریخچه سیگنال‌ها و آمارهای مالی داشبورد ربات
         self.history = {
@@ -193,12 +196,24 @@ class PurePPOStrategy:
                 "amount": amount
             })
             
-            # آستانه حجم بر اساس نام نماد معاملاتی
-            symbol_clean = symbol.split('/')[0].lower()
-            if symbol_clean in ["popcat", "bome"]:
-                v_thresh = 50000.0
+            # محاسبه پویای نوسان جاری از تاریخچه کندل‌های کامل شده قبلی (دِ پرادو)
+            if symbol not in self.completed_bar_prices:
+                self.completed_bar_prices[symbol] = deque(maxlen=288)
+                
+            completed_prices = list(self.completed_bar_prices[symbol])
+            if len(completed_prices) >= 10:
+                returns_list = [
+                    (completed_prices[i] - completed_prices[i-1]) / completed_prices[i-1]
+                    for i in range(1, len(completed_prices))
+                ]
+                vol = float(np.std(returns_list))
             else:
-                v_thresh = 50000.0  # مقدار آستانه پیش‌فرض امن برای سایر جفت‌ارزها مانند SOL
+                vol = 0.015 # فالبک ۱.۵ درصد نوسان
+                
+            # ترشولد دلار بار تطبیقی بر اساس نوسان
+            base_dollar_target = 50000.0
+            gamma = 100.0
+            v_thresh = base_dollar_target / (1.0 + gamma * vol)
                 
             # اگر حجم انباشته شده از حد آستانه عبور کند، کندل حجمی کامل می‌شود
             if self.volume_accumulators[symbol] >= v_thresh:
@@ -211,9 +226,12 @@ class PurePPOStrategy:
                 self.volume_bar_completed[symbol] = True
                 self.volume_bar_price[symbol] = avg_price
                 
+                # ثبت قیمت جهت محاسبات نوسان بعدی
+                self.completed_bar_prices[symbol].append(avg_price)
+                
                 logger.info(
-                    f"📦 Volume Bar Completed for {symbol} | "
-                    f"Total Volume: ${self.volume_accumulators[symbol]:,.2f} | "
+                    f"📦 Volatility-Adjusted Dollar Bar Completed for {symbol} | "
+                    f"Vol Target: ${v_thresh:,.2f} | Volatility: {vol*100:.2f}% | "
                     f"Weighted Price: ${avg_price:.6f} | AI Evaluation Activated."
                 )
                 

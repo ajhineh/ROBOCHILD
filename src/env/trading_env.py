@@ -55,13 +55,34 @@ class FuturesTradingEnv(gym.Env):
             shape=(num_features,),
             dtype=np.float64
         )
-        
         # Initialize state
         self.current_step = 0
         self.position = 0.0 
         self.portfolio_value = 100000.0
         self.peak_portfolio_value = 100000.0
         self.cash = 100000.0
+        
+        # Triple-Barrier Method variables
+        self.tp_bps = 25
+        self.sl_bps = 12
+        if self.symbol:
+            config_path = f"models/config_{self.symbol.lower()}.json"
+            import os, json
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                        self.tp_bps = cfg.get("take_profit_bps", 25)
+                        self.sl_bps = cfg.get("stop_loss_bps", 12)
+                except Exception:
+                    pass
+        
+        self.entry_price = 0.0
+        self.tp_price = 0.0
+        self.sl_price = 0.0
+        self.trade_steps = 0
+        self.max_holding_steps = 48  # 4 hours if 5-min candles
+        
         
     def _preprocess_data(self):
         # Normalize spread and basis relative to price for stationary training features
@@ -214,6 +235,56 @@ class FuturesTradingEnv(gym.Env):
             if pd.isna(ref_price) or ref_price <= 0:
                 ref_price = mid_price
             
+            # ردیابی و بررسی لمس مرزهای سه‌گانه دِ پرادو (Triple-Barrier Method)
+            barrier_hit = None
+            
+            if abs(self.position) > 1e-8:
+                # پوزیشن فعال است: شمارش گام‌ها و بررسی حد سود/ضرر کندل جاری
+                self.trade_steps += 1
+                high_p = row.get("high", mid_price)
+                low_p = row.get("low", mid_price)
+                
+                if self.position > 0: # Long
+                    if low_p <= self.sl_price:
+                        barrier_hit = "SL"
+                        target_position = 0.0
+                        ref_price = self.sl_price
+                    elif high_p >= self.tp_price:
+                        barrier_hit = "TP"
+                        target_position = 0.0
+                        ref_price = self.tp_price
+                    elif self.trade_steps >= self.max_holding_steps:
+                        barrier_hit = "Time"
+                        target_position = 0.0
+                else: # Short
+                    if high_p >= self.sl_price:
+                        barrier_hit = "SL"
+                        target_position = 0.0
+                        ref_price = self.sl_price
+                    elif low_p <= self.tp_price:
+                        barrier_hit = "TP"
+                        target_position = 0.0
+                        ref_price = self.tp_price
+                    elif self.trade_steps >= self.max_holding_steps:
+                        barrier_hit = "Time"
+                        target_position = 0.0
+                        
+                if barrier_hit is not None:
+                    trade_size = target_position - self.position
+            else:
+                # پوزیشن صاف است: تنظیم اهداف خروج در صورت پوزیشن‌گیری جدید
+                if abs(target_position) > 1e-8:
+                    self.entry_price = ref_price
+                    self.trade_steps = 0
+                    tp_ratio = self.tp_bps / 10000.0
+                    sl_ratio = self.sl_bps / 10000.0
+                    if target_position > 0: # Long
+                        self.tp_price = ref_price * (1.0 + tp_ratio)
+                        self.sl_price = ref_price * (1.0 - sl_ratio)
+                    else: # Short
+                        self.tp_price = ref_price * (1.0 - tp_ratio)
+                        self.sl_price = ref_price * (1.0 + sl_ratio)
+
             # Volatility-adaptive slippage on top of reference execution price
             slippage_rate = self.base_slippage_rate + 0.005 * (abs(trade_size) / (market_depth + 1e-8)) * (1.0 + volatility)
             execution_price = ref_price * (1.0 + np.sign(trade_size) * slippage_rate)
@@ -222,6 +293,7 @@ class FuturesTradingEnv(gym.Env):
             transaction_fee = trade_value * self.transaction_fee_rate
             
             self.cash -= (trade_size * execution_price) + transaction_fee
+            prev_position = self.position
             self.position = target_position
             
             new_portfolio_value = self.cash + (self.position * mid_price)
@@ -245,25 +317,24 @@ class FuturesTradingEnv(gym.Env):
             self.peak_portfolio_value = max(self.peak_portfolio_value, new_portfolio_value)
             drawdown_pct = (self.peak_portfolio_value - new_portfolio_value) / self.peak_portfolio_value
             
-            # 3. New reward function: Reward = (PnL_Pct * 100) - (Drawdown_Pct * 100 * 0.5) - Fee_Pct
-            reward = (pnl_pct * 100.0) - (drawdown_pct * 100.0 * 0.5) - fee_pct
+            # 3. محاسبه پاداش مبتنی بر روش مرز سه‌گانه (Path-Dependent Triple-Barrier)
+            if barrier_hit == "TP":
+                reward = 1.5 + (pnl_pct * 100.0) - fee_pct
+            elif barrier_hit == "SL":
+                reward = -2.0 + (pnl_pct * 100.0) - fee_pct
+            elif barrier_hit == "Time":
+                reward = (pnl_pct * 100.0) - 0.2 - fee_pct
+            elif abs(prev_position) > 1e-8 and abs(self.position) < 1e-8:
+                # خروج دستی اختیاری توسط خود مدل عصبی
+                reward = (pnl_pct * 100.0) - fee_pct
+            else:
+                # عدم تغییر موقعیت یا نگهداری فعال بدون برخورد به مرزها: پاداش صفر
+                reward = 0.0
             
-            # 4. Action Change Penalty (Strong penalty to discourage excessive over-trading)
-            if abs(trade_size) > 1e-8:
-                # Penalty scales with transaction frequency and size
-                action_penalty_pct = (trade_value / self.portfolio_value) * 0.5 # 0.5% penalty of trade value to prevent small jittery trades
+            # اعمال جریمه تغییر پوزیشن جهت جلوگیری از نوسان کاذب معاملاتی
+            if abs(trade_size) > 1e-8 and barrier_hit is None:
+                action_penalty_pct = (trade_value / self.portfolio_value) * 0.5
                 reward -= action_penalty_pct * 100.0
-            
-            # Apply symmetric reward scaling for successful (profitable) trades
-            if pnl_pct > 0:
-                if self.position > 1e-8: # Successful LONG
-                    reward *= 1.5
-                elif self.position < -1e-8: # Successful SHORT
-                    reward *= 1.5
-            
-            # 5. Holding penalty (increased from 0.0005 to 0.003 per step to encourage faster, high-probability exits)
-            if abs(target_position) > 1e-8:
-                reward -= 0.003
                 
             self.portfolio_value = new_portfolio_value
             
@@ -283,8 +354,8 @@ class FuturesTradingEnv(gym.Env):
 
     def _build_volume_bars(self, raw_df: pd.DataFrame) -> pd.DataFrame:
         """
-        تبدیل کندل‌های زمانی به کندل‌های حجمی داینامیک بر اساس میانگین حجم ۲۴ ساعته متحرک (Comment 1)
-        و محاسبه شاخص OBI با وزن حجمی (Volume-Weighted OBI) در طول کل زمان شکل‌گیری کندل حجمی (Comment 2).
+        تبدیل کندل‌های زمانی به کندل‌های دلاری تطبیقی با نوسان (Volatility-Adjusted Dollar Bars)
+        و محاسبه شاخص OBI با وزن حجمی (Volume-Weighted OBI) در طول کل زمان شکل‌گیری کندل حجمی.
         """
         import numpy as np
         import pandas as pd
@@ -293,8 +364,9 @@ class FuturesTradingEnv(gym.Env):
         if "volume" not in raw_df.columns or "mid_price" not in raw_df.columns:
             return raw_df
 
-        # ۱. محاسبه حجم میانگین متحرک ۲۴ ساعته (معادل ۱۴۴۰ کندل ۱ دقیقه‌ای)
-        rolling_24h_sum = raw_df["volume"].rolling(window=1440, min_periods=1).sum()
+        # محاسبه نوسان متحرک بازده قیمت برای ترشولدهای پویا
+        pct_change = raw_df["mid_price"].pct_change()
+        rolling_std = pct_change.rolling(window=288, min_periods=30).std()
         
         volume_bars = []
         current_volume = 0.0
@@ -307,14 +379,17 @@ class FuturesTradingEnv(gym.Env):
             current_ticks.append(row)
             current_volume += vol_val
             
-            # آستانه داینامیک یا ثابت بر اساس سمبل
-            symbol_clean = self.symbol.split('/')[0].lower() if self.symbol else ""
-            if symbol_clean in ["popcat", "bome"]:
-                v_thresh = 50000.0
-            else:
-                v_thresh = 0.05 * (rolling_24h_sum.iloc[idx] * row["mid_price"])
-                if pd.isna(v_thresh) or v_thresh <= 1000.0:
-                    v_thresh = 50000.0 # فالبک امن در صورت کم بودن شدید حجم
+            # محاسبه انحراف معیار جاری
+            vol = rolling_std.iloc[idx]
+            if pd.isna(vol) or vol <= 0:
+                vol = 0.015 # فالبک ۱.۵ درصد نوسان
+                
+            # ترشولد دلار بار تطبیقی بر اساس نوسان (فرمول دِ پرادو)
+            # نوسان بالا -> ترشولد کمتر (شکار دقیق‌تر کندل‌های انفجاری)
+            # نوسان پایین -> ترشولد بیشتر (کاهش معاملاتی رِنج و بیهوده)
+            base_dollar_target = 50000.0
+            gamma = 100.0
+            v_thresh = base_dollar_target / (1.0 + gamma * vol)
                 
             if current_volume >= v_thresh:
                 # بستن کندل حجمی و استخراج مقادیر جدید
