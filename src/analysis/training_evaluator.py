@@ -55,19 +55,28 @@ class UltraEnsembleEvaluator:
         self.trade_capital_pct = float(Config.TRADE_CAPITAL_PCT)
         self.leverage = int(Config.DEFAULT_LEVERAGE) if market_type == "futures" else 1
         
-        # بارگذاری پویای وزن‌های انسیبل از کانفیگ اختصاصی نماد
-        self.ppo_w, self.sac_w, self.td3_w = 0.50, 0.30, 0.20
+        # بارگذاری اجباری وزن‌های انسیبل و پارامترها از کانفیگ اختصاصی نماد
         config_path = self.base_path / "models" / f"config_{self.symbol}.json"
-        if config_path.exists():
-            try:
-                import json
-                with open(config_path, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                self.ppo_w = cfg.get("ppo_weight", self.ppo_w)
-                self.sac_w = cfg.get("sac_weight", self.sac_w)
-                self.td3_w = cfg.get("td3_weight", self.td3_w)
-            except Exception:
-                pass
+        if not config_path.exists():
+            raise FileNotFoundError(
+                f"فایل کانفیگ اختصاصی نماد در مسیر {config_path} یافت نشد. "
+                "لطفاً ابتدا فرآیند آموزش را برای این نماد شروع کنید تا فایل کانفیگ ساخته شود."
+            )
+        
+        try:
+            import json
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            self.ppo_w = float(cfg["ppo_weight"])
+            self.sac_w = float(cfg["sac_weight"])
+            self.td3_w = float(cfg["td3_weight"])
+            self.ensemble_threshold = float(cfg.get("ensemble_threshold", 0.65))
+            self.take_profit_bps = int(cfg.get("take_profit_bps", 25))
+            self.stop_loss_bps = int(cfg.get("stop_loss_bps", 12))
+        except KeyError as ke:
+            raise ValueError(f"پارامتر کلیدی {ke} در فایل کانفیگ {config_path.name} وجود ندارد یا مقداردهی نشده است.")
+        except Exception as e:
+            raise ValueError(f"خطا در خواندن فایل کانفیگ {config_path.name}: {e}")
         
         # پوشه ذخیره گزارشات
         self.analysis_dir = self.base_path / "analysis"
@@ -137,8 +146,8 @@ class UltraEnsembleEvaluator:
                 self.log(f"⚠️ مدل {name.upper()} در پوشه models یافت نشد.")
 
     def fetch_evaluation_data(self) -> pd.DataFrame:
-        """دانلود داده‌های واقعی دوره مشخص شده صرافی یا تولید داده‌های تست آفلاین"""
-        self.log(f"📡 در حال دریافت داده‌های {self.days_back} روز گذشته جهت بک‌تست واقعی...")
+        """دانلود داده‌های واقعی دوره مشخص شده صرافی"""
+        self.log(f"📡 در حال دریافت داده‌های واقعی {self.days_back} روز گذشته برای {self.symbol.upper()}...")
         is_meme = self.symbol in ["bome", "pepe", "doge", "shib", "wif", "bonk", "floki", "popcat"]
         timeframe = "1m" if is_meme else "5m"
         
@@ -152,11 +161,16 @@ class UltraEnsembleEvaluator:
             if df is not None and len(df) > 100:
                 self.log(f"✅ تعداد {len(df)} کندل واقعی با موفقیت از صرافی واکشی شد.")
                 return df
+            else:
+                raise ValueError("دیتا فریم خالی است یا تعداد کندل‌ها کمتر از ۱۰۰ می‌باشد.")
         except Exception as e:
-            self.log(f"⚠️ واکشی داده‌های واقعی به خطا خورد: {e}")
-            
-        self.log("🎲 در حال ایجاد داده‌های تست آفلاین به صورت شبیه‌سازی...")
-        return generate_synthetic_futures_data(n_steps=2000)
+            err_msg = f"خطا در دریافت داده‌های واقعی از صرافی: {e}"
+            self.log(f"❌ {err_msg}")
+            raise RuntimeError(
+                f"بارگذاری داده‌های واقعی صرافی برای جفت‌ارز {self.symbol.upper()} با خطا مواجه شد: {e}. "
+                "به منظور جلوگیری از اعتبارسنجی کاذب با داده‌های شبیه‌سازی‌شده (Synthetic)، روند ارزیابی متوقف گردید. "
+                "لطفاً اتصال اینترنت/API سرور یا تحریم/فیلترینگ صرافی بایننس را بررسی فرمایید."
+            )
 
     def run_backtest_on_env(self, df_data: pd.DataFrame, use_volume_bars: bool = True) -> dict:
         """اجرای شبیه‌سازی گام‌به‌گام بک‌تست واقعی مدل Ensemble روی محیط معاملاتی"""
@@ -328,20 +342,10 @@ class UltraEnsembleEvaluator:
             else:
                 action_final = w_ppo * ppo_norm + w_sac * sac_norm + w_td3 * td3_norm
 
-            # بارگذاری آستانه تصمیم‌گیری (ensemble_threshold) جهت کنترل واقعی ورود/خروج معاملات شبیه‌سازی
-            threshold_val = 0.65
-            tp_bps = 25
-            sl_bps = 12
-            config_path = self.base_path / "models" / f"config_{self.symbol}.json"
-            if config_path.exists():
-                try:
-                    with open(config_path, "r", encoding="utf-8") as f_cfg:
-                        cfg = json.load(f_cfg)
-                        threshold_val = cfg.get("ensemble_threshold", 0.65)
-                        tp_bps = cfg.get("take_profit_bps", tp_bps)
-                        sl_bps = cfg.get("stop_loss_bps", sl_bps)
-                except Exception:
-                    pass
+            # بارگذاری آستانه تصمیم‌گیری و تارگت‌های سود/ضرر از مشخصات لود شده کلاس
+            threshold_val = self.ensemble_threshold
+            tp_bps = self.take_profit_bps
+            sl_bps = self.stop_loss_bps
 
             # انطباق کامل با ربات واقعی: اگر سیگنال نهایی به آستانه اطمینان نرسیده باشد، پوزیشن Flat/Neutral (معادل 0.0) می‌شود
             if abs(action_final) < threshold_val:
@@ -567,13 +571,21 @@ class UltraEnsembleEvaluator:
         clip = ppo.get("clip_fraction")
 
         if ev is not None:
-            if ev < 0.2:
+            if ev < 0.0:
+                diagnostics.append({
+                    "level": "ERROR",
+                    "metric": "Explained Variance",
+                    "value": f"{ev:.2f}",
+                    "desc": "مقدار منفی بحرانی! تابع ارزش (Value Function) مدل بسیار ضعیف است و قیمت‌ها را بدتر از میانگین تصادفی پیش‌بینی می‌کند.",
+                    "suggestion": "تعداد گام‌های یادگیری (n_steps) را به حداقل ۴۰۹۶ افزایش داده و ضریب تخمین ارزش (vf_coef) را در فایل کانفیگ به ۰.۸ یا ۱.۰ برسانید تا لایه Critic مدل تقویت شود."
+                })
+            elif ev < 0.2:
                 diagnostics.append({
                     "level": "ERROR",
                     "metric": "Explained Variance",
                     "value": f"{ev:.2f}",
                     "desc": "مقداری بسیار کم! مدل موفق به پیش‌بینی تغییرات واریانس قیمت نشده و آموزش ناپایدار است.",
-                    "suggestion": "افزایش طول داده، تغییر لایه‌های معماری یا افزایش n_steps توصیه می‌شود."
+                    "suggestion": "افزایش طول دوره داده‌های آموزش، استفاده از ویژگی‌های قوی‌تر در حالت پیش‌پردازش یا افزایش n_steps توصیه می‌شود."
                 })
             elif ev < 0.5:
                 diagnostics.append({
