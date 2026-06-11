@@ -146,7 +146,7 @@ class OrderExecutor:
                 order = await self.exchange.create_market_order(symbol, order_side, token_amount)
                 logger.info(f"🎉 Trade Executed on Exchange. Order ID: {order['id']}")
 
-                # ثبت موقعیت در پوزیشن‌های باز ربات
+                import time
                 self.open_positions[symbol] = {
                     "id": order["id"],
                     "side": side,
@@ -155,7 +155,8 @@ class OrderExecutor:
                     "token_amount": token_amount,
                     "amount": amount_usdt,
                     "tp": take_profit_quote,
-                    "sl": stop_loss_quote
+                    "sl": stop_loss_quote,
+                    "opened_at": time.time()
                 }
                 return True
 
@@ -171,6 +172,7 @@ class OrderExecutor:
             # استفاده از قیمت لحظه‌ای واقعی ثبت‌شده در معامله جهت محاسبه دقیق سود و زیان
             simulated_entry_price = entry_price if entry_price is not None else 1.0
             
+            import time
             self.open_positions[symbol] = {
                 "id": "mock_order_" + str(int(asyncio.get_event_loop().time() * 1000)),
                 "side": side,
@@ -179,7 +181,8 @@ class OrderExecutor:
                 "token_amount": (amount_usdt * leverage) / simulated_entry_price,
                 "amount": amount_usdt,
                 "tp": take_profit_quote,
-                "sl": stop_loss_quote
+                "sl": stop_loss_quote,
+                "opened_at": time.time()
             }
             logger.info(f"🎉 Simulated Trade Opened at ${simulated_entry_price:.6f}. Target SL: {stop_loss_quote:.6f} | Target TP: {take_profit_quote:.6f}")
             return True

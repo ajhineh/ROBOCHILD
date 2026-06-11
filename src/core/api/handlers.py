@@ -46,6 +46,7 @@ def handle_api_status(handler, global_engine, global_executor, scan_existing_mod
                 "entry_price": pos["entry_price"],
                 "tp": pos["tp"],
                 "sl": pos["sl"],
+                "opened_at": pos.get("opened_at", time.time()),
                 "pnl": round(pos_pnl, 2)
             })
         

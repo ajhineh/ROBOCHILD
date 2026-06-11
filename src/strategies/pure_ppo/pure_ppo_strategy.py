@@ -844,6 +844,16 @@ class PurePPOStrategy:
         self.active_trades[symbol] = new_trade
         logger.info(f"🏹 Neural Network Ensemble proposed {side.upper()} order for {symbol} at ${price:.6f} | Weight: {action_ratio:+.2f}")
 
+        # ثبت ورود در تاریخچه محلی جهت بازسازی معاملات در تب تحلیل معاملات داشبورد
+        self.log_signal({
+            "symbol": symbol,
+            "type": "BUY" if side == "long" else "SELL",
+            "price": price,
+            "time": int(timestamp / 1000),
+            "strategy": "PurePPOStrategy",
+            "diagnostic_report": diagnostic_report
+        })
+
         # ۴. فید کردن سیگنال به موتور تصمیم‌گیر جهت اعمال فیلترهای ۲۹ گانه
         if self.on_entry_callback:
             try:

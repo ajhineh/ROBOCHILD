@@ -1014,14 +1014,15 @@
                                     <th>نماد</th>
                                     <th>جهت</th>
                                     <th>اهرم</th>
-                                    <th>قیمت ورود</th>
+                                    <th>ورود / اهداف (SL/TP)</th>
+                                    <th>مدت زمان</th>
                                     <th>سود/زیان</th>
                                     <th>عملیات</th>
                                 </tr>
                             </thead>
                             <tbody id="positions-table-body">
                                 <tr>
-                                    <td colspan="6"
+                                    <td colspan="7"
                                         style="text-align: center; color: var(--text-muted); padding: 20px;">هیچ پوزیشن
                                         بازی ثبت نشده است.</td>
                                 </tr>
@@ -2291,11 +2292,23 @@
                         const tr = document.createElement("tr");
                         const pnlClass = p.pnl >= 0 ? "value-green" : "value-red";
 
+                        const openedAt = p.opened_at || (Date.now() / 1000);
+                        const elapsedSecs = Math.max(0, Math.floor(Date.now() / 1000 - openedAt));
+                        const m = Math.floor(elapsedSecs / 60);
+                        const s = elapsedSecs % 60;
+                        const durationStr = `${m}m ${s}s`;
+
                         tr.innerHTML = `
                             <td style="font-weight:700;">${p.symbol}</td>
                             <td><span class="asset-status ${p.side === 'long' ? 'status-long' : 'status-short'}" style="padding: 2px 8px;">${p.side.toUpperCase()}</span></td>
                             <td>${p.leverage}x</td>
-                            <td>$${p.entry_price.toFixed(6)}</td>
+                            <td style="line-height:1.2;">
+                                $${p.entry_price.toFixed(6)}<br>
+                                <span style="font-size:10px; color:var(--text-muted);">
+                                    SL: $${p.sl.toFixed(4)} | TP: $${p.tp.toFixed(4)}
+                                </span>
+                            </td>
+                            <td style="font-family: monospace;">${durationStr}</td>
                             <td class="${pnlClass}" style="font-weight:bold;">${p.pnl >= 0 ? '+' : ''}${p.pnl.toFixed(2)}%</td>
                             <td>
                                 <button onclick="closeSinglePosition('${p.symbol}')" style="background: rgba(255,0,0,0.1); border: 1px solid rgba(255,0,0,0.2); color:var(--neon-red); border-radius:4px; padding:4px 8px; cursor:pointer; font-size:11px;">بستن فوری</button>
@@ -2304,7 +2317,7 @@
                         posTable.appendChild(tr);
                     });
                 } else {
-                    posTable.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">هیچ موقعیت بازی وجود ندارد.</td></tr>`;
+                    posTable.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">هیچ موقعیت بازی وجود ندارد.</td></tr>`;
                 }
 
                 // 5. Update Trained Models chips
