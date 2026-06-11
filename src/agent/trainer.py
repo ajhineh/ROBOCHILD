@@ -176,12 +176,45 @@ def train_agent(
     else:
         lr_input = learning_rate_val
 
+    # 1.5. Dynamic frame_stack shape checking for resume to prevent SB3 crashes
+    override_stack = None
+    if resume:
+        # Check first phase (PPO) model shape to keep observation space consistent
+        ppo_final = os.path.join(model_save_dir, f"{model_name}_ppo_final.zip")
+        ppo_best = os.path.join(model_save_dir, f"{model_name}_ppo_best.zip")
+        model_path_to_check = ppo_final if os.path.exists(ppo_final) else (ppo_best if os.path.exists(ppo_best) else None)
+        
+        if model_path_to_check:
+            try:
+                from stable_baselines3 import PPO
+                # Load metadata without environment to check observation space shape
+                tmp_model = PPO.load(model_path_to_check, device="cpu")
+                obs_shape = tmp_model.observation_space.shape
+                if obs_shape and len(obs_shape) > 0:
+                    features_dim = obs_shape[0]
+                    detected_stack = int(features_dim / 12)
+                    print(f"[Agent Trainer] Detected existing PPO model observation space shape: {obs_shape}. Forcing frame_stack = {detected_stack} to prevent shape mismatch.")
+                    override_stack = detected_stack
+            except Exception as e:
+                print(f"[Agent Trainer] Warning inspecting PPO model shape: {e}. Trying RecurrentPPO load...")
+                try:
+                    if USING_RECURRENT:
+                        tmp_model = RecurrentPPO.load(model_path_to_check, device="cpu")
+                        obs_shape = tmp_model.observation_space.shape
+                        if obs_shape and len(obs_shape) > 0:
+                            features_dim = obs_shape[0]
+                            detected_stack = int(features_dim / 12)
+                            print(f"[Agent Trainer] Detected existing RecurrentPPO model observation space shape: {obs_shape}. Forcing frame_stack = {detected_stack} to prevent shape mismatch.")
+                            override_stack = detected_stack
+                except Exception as e2:
+                    print(f"[Agent Trainer] Failed to inspect model shape via RecurrentPPO: {e2}")
+
     # Define environment creators
     def make_train_env():
-        return FuturesTradingEnv(train_df, symbol=symbol_clean)
+        return FuturesTradingEnv(train_df, symbol=symbol_clean, override_num_stack=override_stack)
     
     def make_val_env():
-        return FuturesTradingEnv(val_df, symbol=symbol_clean)
+        return FuturesTradingEnv(val_df, symbol=symbol_clean, override_num_stack=override_stack)
 
     # We will train 3 algorithms sequentially: PPO, SAC, TD3
     phases = [

@@ -21,7 +21,8 @@ class FuturesTradingEnv(gym.Env):
         base_slippage_rate: float = 0.0002,   # 0.02% base slippage
         liquidation_penalty_coef: float = 0.0008, # Reduced to 0.08% to match normal close transaction fee + slippage proxy
         live_client = None,            # Live exchange client for Phase 4 streaming
-        symbol: str = None             # Symbol name
+        symbol: str = None,            # Symbol name
+        override_num_stack: int = None  # Force specific stack size to prevent SB3 shape mismatch
     ):
         super(FuturesTradingEnv, self).__init__()
         
@@ -42,7 +43,9 @@ class FuturesTradingEnv(gym.Env):
         # Frame stacking configurations
         from collections import deque
         self.n_stack = 10
-        if self.symbol:
+        if override_num_stack is not None:
+            self.n_stack = override_num_stack
+        elif self.symbol:
             config_path = f"models/config_{self.symbol.lower()}.json"
             import os, json
             if os.path.exists(config_path):
