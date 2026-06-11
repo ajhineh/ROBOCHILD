@@ -368,6 +368,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.handle_api_analysis_status()
         elif self.path == "/api/screener":
             self.handle_api_screener()
+        elif self.path == "/api/get_available_symbols":
+            api_handlers.handle_api_get_available_symbols(self)
+        elif self.path.startswith("/api/get_symbol_config"):
+            from urllib.parse import urlparse, parse_qs
+            query_params = parse_qs(urlparse(self.path).query)
+            api_handlers.handle_api_get_symbol_config(self, query_params)
         else:
             self.send_error(404, "API endpoint not found")
 
@@ -403,6 +409,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.handle_api_set_bot_settings(body)
         elif self.path == "/api/run_analyzer":
             self.handle_api_run_analyzer(body)
+        elif self.path == "/api/add_available_symbol":
+            api_handlers.handle_api_add_available_symbol(self, body)
+        elif self.path == "/api/save_symbol_config":
+            api_handlers.handle_api_save_symbol_config(self, body)
         else:
             self.send_error(404, "Endpoint not found")
 

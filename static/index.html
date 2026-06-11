@@ -1074,9 +1074,18 @@
 
                 <div class="training-section">
                     <div class="form-group">
-                        <label>نام نماد صرافی بایننس (مانند POPCAT/USDT:USDT)</label>
-                        <input type="text" id="train-symbol" class="form-control" placeholder="POPCAT/USDT:USDT"
-                            value="POPCAT/USDT:USDT">
+                        <label>ثبت ارز جدید (نام نماد بایننس مانند POPCAT/USDT:USDT)</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="train-symbol" class="form-control" placeholder="POPCAT/USDT:USDT" value="POPCAT/USDT:USDT" style="flex: 1;">
+                            <button onclick="addAvailableSymbol()" class="nav-btn" style="margin: 0; padding: 0 16px; background: var(--accent-cyan); color: var(--bg-dark); font-weight: bold; border-radius: 4px; border: none; cursor: pointer; height: 38px; min-width: 90px; transition: all 0.3s;">اضافه کن</button>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" style="margin-top: 12px;">
+                        <label>انتخاب جفت ارز جهت آموزش و تنظیم پارامترها</label>
+                        <select id="train-symbol-select" class="form-control" onchange="loadSymbolConfig()" style="background: #14132a; color: #ffffff; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px;">
+                            <!-- Filled dynamically -->
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>تعداد کل گام‌های تخصیص یافته به دوره یادگیری (Train Steps)</label>
@@ -1177,6 +1186,11 @@
                             <div class="form-group">
                                 <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">آستانه تصمیم‌گیری (Threshold)</label>
                                 <input type="number" id="train-threshold" class="form-control" step="0.05" min="0.1" max="0.95" value="0.65" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            
+                            <div style="grid-column: span 2; border-bottom: 1px solid var(--border-color); margin: 5px 0;"></div>
+                            
+                            <div style="grid-column: span 2; display: flex; justify-content: flex-end; margin-top: 10px;">
+                                <button type="button" onclick="saveSymbolConfig()" style="background: rgba(13, 217, 198, 0.25); border: 1px solid var(--accent-cyan); color: #ffffff; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; transition: all 0.3s; display: flex; align-items: center; gap: 6px;">💾 ذخیره تنظیمات در فایل کانفیگ نماد</button>
                             </div>
                         </div>
                     </details>
@@ -2575,7 +2589,8 @@
 
         // Start background training thread (1m LSTM-PPO model)
         async function startTraining() {
-            const symbol = document.getElementById("train-symbol").value.trim();
+            const select = document.getElementById("train-symbol-select");
+            const symbol = select && select.value ? select.value.trim() : "";
             const steps = parseInt(document.getElementById("train-steps").value);
             const resume = document.getElementById("train-resume").checked;
             const lrSelect = document.getElementById("train-lr").value;
@@ -3948,7 +3963,145 @@
             }
         }
 
+        // Load available symbols from backend
+        async function loadAvailableSymbols() {
+            try {
+                const response = await fetch(`${API_BASE}/api/get_available_symbols`);
+                const res = await response.json();
+                if (res.success && res.symbols) {
+                    const select = document.getElementById("train-symbol-select");
+                    if (select) {
+                        select.innerHTML = "";
+                        res.symbols.forEach(sym => {
+                            const opt = document.createElement("option");
+                            opt.value = sym;
+                            opt.innerText = sym;
+                            select.appendChild(opt);
+                        });
+                        if (res.symbols.length > 0) {
+                            loadSymbolConfig();
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Error loading available symbols:", err);
+            }
+        }
+
+        // Add a new symbol by checking its existence in ccxt
+        async function addAvailableSymbol() {
+            const symbolInput = document.getElementById("train-symbol");
+            if (!symbolInput) return;
+            const symbol = symbolInput.value.trim();
+            if (!symbol) {
+                showToast("لطفاً نام جفت ارز را وارد کنید.", true);
+                return;
+            }
+            
+            showToast("در حال استعلام نماد از صرافی...");
+            try {
+                const response = await fetch(`${API_BASE}/api/add_available_symbol`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol })
+                });
+                const res = await response.json();
+                if (res.success) {
+                    showToast(res.message);
+                    if (res.symbols) {
+                        const select = document.getElementById("train-symbol-select");
+                        if (select) {
+                            select.innerHTML = "";
+                            res.symbols.forEach(sym => {
+                                const opt = document.createElement("option");
+                                opt.value = sym;
+                                opt.innerText = sym;
+                                select.appendChild(opt);
+                            });
+                            select.value = res.symbols[res.symbols.length - 1];
+                            loadSymbolConfig();
+                        }
+                    }
+                } else {
+                    showToast(res.message, true);
+                }
+            } catch (err) {
+                showToast("خطا در ارتباط با سرور برای اعتبارسنجی جفت ارز.", true);
+            }
+        }
+
+        // Load parameter values from symbol's config file
+        async function loadSymbolConfig() {
+            const select = document.getElementById("train-symbol-select");
+            if (!select || !select.value) return;
+            const symbol = select.value;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/get_symbol_config?symbol=${encodeURIComponent(symbol)}`);
+                const res = await response.json();
+                if (res.success && res.config) {
+                    const cfg = res.config;
+                    if (document.getElementById("train-vf-coef")) document.getElementById("train-vf-coef").value = cfg.vf_coef || 0.8;
+                    if (document.getElementById("train-n-steps")) document.getElementById("train-n-steps").value = cfg.n_steps || 2048;
+                    if (document.getElementById("train-batch-size")) document.getElementById("train-batch-size").value = cfg.batch_size || 256;
+                    if (document.getElementById("train-gamma")) document.getElementById("train-gamma").value = cfg.gamma || 0.98;
+                    if (document.getElementById("train-gae-lambda")) document.getElementById("train-gae-lambda").value = cfg.gae_lambda || 0.95;
+                    if (document.getElementById("train-clip-range")) document.getElementById("train-clip-range").value = cfg.clip_range || 0.25;
+                    if (document.getElementById("train-ent-coef")) document.getElementById("train-ent-coef").value = cfg.ent_coef || 0.015;
+                    
+                    if (document.getElementById("train-ppo-weight")) document.getElementById("train-ppo-weight").value = cfg.ppo_weight || 0.50;
+                    if (document.getElementById("train-sac-weight")) document.getElementById("train-sac-weight").value = cfg.sac_weight || 0.30;
+                    if (document.getElementById("train-td3-weight")) document.getElementById("train-td3-weight").value = cfg.td3_weight || 0.20;
+                    if (document.getElementById("train-threshold")) document.getElementById("train-threshold").value = cfg.ensemble_threshold || 0.65;
+                }
+            } catch (err) {
+                console.error("Error loading symbol config:", err);
+            }
+        }
+
+        // Save parameter values back to symbol's config file
+        async function saveSymbolConfig() {
+            const select = document.getElementById("train-symbol-select");
+            if (!select || !select.value) {
+                showToast("ابتدا جفت ارز مورد نظر خود را انتخاب یا اضافه کنید.", true);
+                return;
+            }
+            const symbol = select.value;
+            
+            const config = {
+                vf_coef: parseFloat(document.getElementById("train-vf-coef").value),
+                n_steps: parseInt(document.getElementById("train-n-steps").value),
+                batch_size: parseInt(document.getElementById("train-batch-size").value),
+                gamma: parseFloat(document.getElementById("train-gamma").value),
+                gae_lambda: parseFloat(document.getElementById("train-gae-lambda").value),
+                clip_range: parseFloat(document.getElementById("train-clip-range").value),
+                ent_coef: parseFloat(document.getElementById("train-ent-coef").value),
+                
+                ppo_weight: parseFloat(document.getElementById("train-ppo-weight").value),
+                sac_weight: parseFloat(document.getElementById("train-sac-weight").value),
+                td3_weight: parseFloat(document.getElementById("train-td3-weight").value),
+                ensemble_threshold: parseFloat(document.getElementById("train-threshold").value)
+            };
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/save_symbol_config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol, config: config })
+                });
+                const res = await response.json();
+                if (res.success) {
+                    showToast(res.message);
+                } else {
+                    showToast(res.message, true);
+                }
+            } catch (err) {
+                showToast("خطا در ذخیره تنظیمات روی سرور.", true);
+            }
+        }
+
         // Initial setup
+        loadAvailableSymbols();
         window.settingsLoaded = false;
         window.statusRequestId = 0;  // شناسه‌ی درخواست برای جلوگیری از race condition (پاسخ‌های قدیمی را نادیده می‌گیریم)
         bindFilterCheckboxes();

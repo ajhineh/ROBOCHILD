@@ -602,3 +602,153 @@ def handle_api_set_settings(handler, body, global_engine, global_executor, globa
         handler.send_json({"success": True, "message": "تنظیمات با موفقیت ذخیره و در متغیرهای محیطی ربات لود شد."})
     else:
         handler.send_json({"success": False, "message": "خطا در نوشتن تنظیمات روی فایل .env رخ داد."}, 500)
+
+
+def handle_api_get_available_symbols(handler):
+    file_path = "models/available_symbols.json"
+    default_symbols = ["SOL/USDT:USDT", "POPCAT/USDT:USDT", "BOME/USDT:USDT"]
+    
+    if not os.path.exists(file_path):
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(default_symbols, f, indent=4)
+            symbols = default_symbols
+        except Exception:
+            symbols = default_symbols
+    else:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                symbols = json.load(f)
+        except Exception:
+            symbols = default_symbols
+            
+    handler.send_json({"success": True, "symbols": symbols})
+
+
+def handle_api_add_available_symbol(handler, body):
+    symbol = body.get("symbol", "").upper().strip()
+    if not symbol:
+        handler.send_json({"success": False, "message": "نماد جفت ارز اجباری است."}, 400)
+        return
+        
+    import ccxt
+    try:
+        binance = ccxt.binance({'enableRateLimit': True})
+        markets = binance.load_markets()
+        
+        exists = symbol in markets
+        corrected_symbol = symbol
+        
+        if not exists:
+            if symbol.endswith("/USDT"):
+                alternative = symbol + ":USDT"
+                if alternative in markets:
+                    exists = True
+                    corrected_symbol = alternative
+            elif not ":" in symbol:
+                clean_sym = symbol.replace("-", "").replace("/", "").upper()
+                if clean_sym.endswith("USDT"):
+                    base = clean_sym[:-4]
+                    alternative = f"{base}/USDT:USDT"
+                    if alternative in markets:
+                        exists = True
+                        corrected_symbol = alternative
+        
+        if not exists:
+            handler.send_json({"success": False, "message": "این نماد در صرافی مورد نظر یافت نشد. لطفاً ساختار نماد را بررسی کنید (مانند 1000SHIB/USDT:USDT یا POPCAT/USDT:USDT)"})
+            return
+            
+        file_path = "models/available_symbols.json"
+        symbols = []
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    symbols = json.load(f)
+            except Exception:
+                symbols = ["SOL/USDT:USDT", "POPCAT/USDT:USDT", "BOME/USDT:USDT"]
+        else:
+            symbols = ["SOL/USDT:USDT", "POPCAT/USDT:USDT", "BOME/USDT:USDT"]
+            
+        if corrected_symbol not in symbols:
+            symbols.append(corrected_symbol)
+            try:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(symbols, f, indent=4)
+            except Exception as e:
+                handler.send_json({"success": False, "message": f"خطا در بروزرسانی فایل نمادها: {e}"}, 500)
+                return
+                
+        handler.send_json({
+            "success": True, 
+            "message": f"جفت ارز {corrected_symbol} با موفقیت اعتبارسنجی و به لیست مدل‌ها اضافه شد.",
+            "symbols": symbols
+        })
+        
+    except Exception as e:
+        handler.send_json({"success": False, "message": f"خطا در ارتباط با صرافی جهت اعتبارسنجی: {e}"}, 500)
+
+
+def handle_api_get_symbol_config(handler, query_params):
+    symbol = query_params.get("symbol", [""])[0].upper().strip()
+    if not symbol:
+        handler.send_json({"success": False, "message": "Symbol is required"}, 400)
+        return
+    
+    symbol_clean = symbol.split('/')[0].lower()
+    config_path = f"models/config_{symbol_clean}.json"
+    
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+            handler.send_json({"success": True, "config": config_data})
+        except Exception as e:
+            handler.send_json({"success": False, "message": f"Error reading config: {e}"}, 500)
+    else:
+        default_config = {
+            "vf_coef": 0.8,
+            "n_steps": 2048,
+            "batch_size": 256,
+            "gamma": 0.98,
+            "gae_lambda": 0.95,
+            "clip_range": 0.25,
+            "ent_coef": 0.015,
+            "ppo_weight": 0.5,
+            "sac_weight": 0.3,
+            "td3_weight": 0.2,
+            "ensemble_threshold": 0.65,
+            "take_profit_bps": 25,
+            "stop_loss_bps": 12,
+            "frame_stack": 10,
+            "min_explained_variance_for_sac": -2.0,
+            "time_barrier_penalty": 0.2
+        }
+        handler.send_json({"success": True, "config": default_config})
+
+
+def handle_api_save_symbol_config(handler, body):
+    symbol = body.get("symbol", "").upper().strip()
+    config_data = body.get("config", {})
+    if not symbol:
+        handler.send_json({"success": False, "message": "Symbol is required"}, 400)
+        return
+    
+    symbol_clean = symbol.split('/')[0].lower()
+    config_path = f"models/config_{symbol_clean}.json"
+    
+    try:
+        existing_config = {}
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                existing_config = json.load(f)
+        
+        for k, v in config_data.items():
+            existing_config[k] = v
+            
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(existing_config, f, indent=4, ensure_ascii=False)
+            
+        handler.send_json({"success": True, "message": f"تنظیمات نماد {symbol} با موفقیت در فایل پیکربندی ذخیره شد."})
+    except Exception as e:
+        handler.send_json({"success": False, "message": f"Error saving config: {e}"}, 500)
+
