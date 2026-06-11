@@ -283,9 +283,9 @@ def handle_api_add_symbol(handler, body, global_engine, global_executor, global_
     # فقط در صورتی که دکمه از سرگیری (resume) روشن باشد، بررسی می‌کنیم مدل از قبل وجود دارد یا خیر تا فعالش کنیم.
     # در غیر این صورت (وقتی resume غیرفعال است)، مستقیماً از ابتدا آموزش را شروع می‌کنیم حتی اگر فایلی مانده باشد.
     if resume and os.path.exists(model_file):
-        if symbol in Config.SYMBOLS:
-            handler.send_json({"success": True, "message": f"جفت ارز {symbol} از قبل فعال و در حال ترید است."})
-        else:
+        # اتصال اولیه به سیستم ترید زنده در صورت عدم وجود
+        is_already_trading = symbol in Config.SYMBOLS
+        if not is_already_trading:
             Config.SYMBOLS.append(symbol)
             from src.config import save_env_values
             save_env_values({"SYMBOLS": ",".join(Config.SYMBOLS)})
@@ -318,8 +318,26 @@ def handle_api_add_symbol(handler, body, global_engine, global_executor, global_
                             
                 if symbol not in global_engine.recent_dex_trades:
                     global_engine.recent_dex_trades[symbol] = deque()
-                    
-            handler.send_json({"success": True, "message": f"مدل هوش مصنوعی یافت شد! جفت ارز {symbol} به سیستم ترید زنده متصل شد."})
+            
+            log_event(f"مدل هوش مصنوعی یافت شد! جفت ارز {symbol} به سیستم ترید زنده متصل شد.")
+
+        # همزمان آموزش را نیز از سر می‌گیریم
+        steps = int(body.get("steps", 200000))
+        log_event(f"🔄 درخواست از سرگیری (Fine-tune) مدل {symbol} با {steps:,} گام جدید و نرخ یادگیری {learning_rate}...")
+        
+        thread = threading.Thread(
+            target=background_train_orchestrator, 
+            args=(symbol, steps), 
+            kwargs={"resume": resume, "learning_rate": learning_rate},
+            daemon=True
+        )
+        thread.start()
+
+        msg = f"مدل هوش مصنوعی متصل گردید. همزمان فرآیند ارتقا و ادامه آموزش مدل {symbol} با {steps:,} گام جدید استارت خورد."
+        handler.send_json({
+            "success": True,
+            "message": msg
+        })
     else:
         steps = int(body.get("steps", 200000))
         if resume:
