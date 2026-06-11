@@ -844,15 +844,7 @@ class PurePPOStrategy:
         self.active_trades[symbol] = new_trade
         logger.info(f"🏹 Neural Network Ensemble proposed {side.upper()} order for {symbol} at ${price:.6f} | Weight: {action_ratio:+.2f}")
 
-        # ثبت ورود در تاریخچه محلی جهت بازسازی معاملات در تب تحلیل معاملات داشبورد
-        self.log_signal({
-            "symbol": symbol,
-            "type": "BUY" if side == "long" else "SELL",
-            "price": price,
-            "time": int(timestamp / 1000),
-            "strategy": "PurePPOStrategy",
-            "diagnostic_report": diagnostic_report
-        })
+
 
         # ۴. فید کردن سیگنال به موتور تصمیم‌گیر جهت اعمال فیلترهای ۲۹ گانه
         if self.on_entry_callback:
@@ -977,6 +969,18 @@ class PurePPOStrategy:
             pnl_usdt = trade["amount"] * (pnl_pct / 100.0)
             logger.info(f"🚪 EXIT (Take-Profit 2) PPO {trade['side'].upper()} for {symbol} at ${price:.6f} | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
             self._close_ppo_position(symbol, trade, price, pnl_usdt, "TP2" if tp1_hit else "TP", now)
+            return
+
+        # ۴. بررسی مرز زمانی (Vertical Barrier) - خروج زمانی پس از حداکثر ۴ ساعت
+        holding_time_seconds = (now - trade["timestamp"]) / 1000.0
+        max_holding_seconds = 14400.0  # 4 hours
+        if holding_time_seconds >= max_holding_seconds:
+            pnl_pct = ((price - trade["entry_price"]) / trade["entry_price"]) * 100 * trade["leverage"]
+            if trade["side"] == "short":
+                pnl_pct = -pnl_pct
+            pnl_usdt = trade["amount"] * (pnl_pct / 100.0)
+            logger.info(f"⏳ Time limit reached (Vertical Barrier) PPO {trade['side'].upper()} for {symbol} | Duration: {holding_time_seconds:.1f}s | PnL: {pnl_pct:.2f}% ({pnl_usdt:.4f} USDT)")
+            self._close_ppo_position(symbol, trade, price, pnl_usdt, "Time", now)
             return
 
     def _cancel_trade(self, symbol: str, now: int) -> None:

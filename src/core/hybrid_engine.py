@@ -263,7 +263,9 @@ class HybridEngine:
             if current_price > 0:
                 pos_size_tokens = (amt_usdt * leverage) / current_price
 
+            existing_diag = trade_proposal.get("yoyo_data", {}).get("diagnostic_report") or {}
             trade_proposal["yoyo_data"]["diagnostic_report"] = {
+                **existing_diag,
                 "filter_results": filter_results,
                 "net_first_30s_usdt": net_first_30s,
                 "net_last_30s_usdt": net_last_30s,

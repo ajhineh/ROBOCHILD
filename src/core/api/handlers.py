@@ -47,6 +47,7 @@ def handle_api_status(handler, global_engine, global_executor, scan_existing_mod
                 "tp": pos["tp"],
                 "sl": pos["sl"],
                 "opened_at": pos.get("opened_at", time.time()),
+                "max_holding_seconds": 14400,
                 "pnl": round(pos_pnl, 2)
             })
         

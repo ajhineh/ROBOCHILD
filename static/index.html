@@ -2298,6 +2298,16 @@
                         const s = elapsedSecs % 60;
                         const durationStr = `${m}m ${s}s`;
 
+                        const slPct = p.entry_price > 0 ? ((p.sl - p.entry_price) / p.entry_price) * 100 * (p.side === 'long' ? 1 : -1) : 0;
+                        const tpPct = p.entry_price > 0 ? ((p.tp - p.entry_price) / p.entry_price) * 100 * (p.side === 'long' ? 1 : -1) : 0;
+
+                        const maxHoldingSecs = p.max_holding_seconds || 14400;
+                        const remainingSecs = Math.max(0, maxHoldingSecs - elapsedSecs);
+                        const remMin = Math.floor(remainingSecs / 60);
+                        const remHours = Math.floor(remMin / 60);
+                        const remMinLeft = remMin % 60;
+                        const timeLimitStr = remainingSecs > 0 ? `${remHours}h ${remMinLeft}m` : "جریمه زمانی!";
+
                         tr.innerHTML = `
                             <td style="font-weight:700;">${p.symbol}</td>
                             <td><span class="asset-status ${p.side === 'long' ? 'status-long' : 'status-short'}" style="padding: 2px 8px;">${p.side.toUpperCase()}</span></td>
@@ -2305,10 +2315,15 @@
                             <td style="line-height:1.2;">
                                 $${p.entry_price.toFixed(6)}<br>
                                 <span style="font-size:10px; color:var(--text-muted);">
-                                    SL: $${p.sl.toFixed(4)} | TP: $${p.tp.toFixed(4)}
+                                    SL: $${p.sl.toFixed(4)} (${slPct.toFixed(2)}%) | TP: $${p.tp.toFixed(4)} (${tpPct >= 0 ? '+' : ''}${tpPct.toFixed(2)}%)
                                 </span>
                             </td>
-                            <td style="font-family: monospace;">${durationStr}</td>
+                            <td style="font-family: monospace; line-height: 1.2;">
+                                ${durationStr}<br>
+                                <span style="font-size:10px; color:var(--neon-red);">
+                                    تا جریمه: ${timeLimitStr}
+                                </span>
+                            </td>
                             <td class="${pnlClass}" style="font-weight:bold;">${p.pnl >= 0 ? '+' : ''}${p.pnl.toFixed(2)}%</td>
                             <td>
                                 <button onclick="closeSinglePosition('${p.symbol}')" style="background: rgba(255,0,0,0.1); border: 1px solid rgba(255,0,0,0.2); color:var(--neon-red); border-radius:4px; padding:4px 8px; cursor:pointer; font-size:11px;">بستن فوری</button>
@@ -2883,6 +2898,7 @@
                     const symbol = s.symbol;
                     let matchingEntry = null;
                     let entryIndex = -1;
+                    let fullyExited = s.fullyExited !== false;
 
                     // Search backward for the closest unmatched preceding entry for this symbol
                     for (let j = i - 1; j >= 0; j--) {
@@ -2897,7 +2913,7 @@
                         if (isEntry && entryCandidate.symbol === symbol && !matchedEntries.has(j) && sideMatches) {
                             matchingEntry = entryCandidate;
                             entryIndex = j;
-                            const fullyExited = s.fullyExited !== false;
+                            fullyExited = s.fullyExited !== false;
                             if (fullyExited) {
                                 matchedEntries.add(j);
                             }
@@ -2991,10 +3007,17 @@
             return completedTrades;
         }
 
+        function safeFix(val, digits, prefix='') {
+            if (val === undefined || val === null || isNaN(val)) return '0.00';
+            return prefix + Number(val).toFixed(digits);
+        }
+
         function filterTradeHistory() {
-            const query = document.getElementById("diag-search").value.toUpperCase().trim();
             const tbody = document.getElementById("diag-table-body");
-            tbody.innerHTML = "";
+            if (!tbody) return;
+            try {
+                const query = document.getElementById("diag-search").value.toUpperCase().trim();
+                tbody.innerHTML = "";
 
             // Reconstruct trades from raw signal history
             const allTrades = reconstructTrades(allTradeHistory);
@@ -3054,11 +3077,11 @@
                         <td style="font-family: 'Vazirmatn'; color: var(--text-muted);">${dateEntry}</td>
                         <td style="font-weight: 700;">${t.symbol}</td>
                         <td><span class="asset-status ${sideClass}" style="padding: 2px 8px;">${t.side}</span></td>
-                        <td style="font-family: 'Inter'; font-weight: 600;">$${t.entryPrice.toFixed(6)}</td>
-                        <td style="font-family: 'Inter'; font-weight: 600;">$${t.exitPrice.toFixed(6)}</td>
+                        <td style="font-family: 'Inter'; font-weight: 600;">$${safeFix(t.entryPrice, 6)}</td>
+                        <td style="font-family: 'Inter'; font-weight: 600;">$${safeFix(t.exitPrice, 6)}</td>
                         <td>${t.leverage}x</td>
                         <td style="font-family: 'Inter'; font-weight: bold; color: var(--accent-cyan);">${t.deciding_model || 'Ensemble'}</td>
-                        <td class="${pnlClass}" style="font-weight: bold; font-family: 'Inter';">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(4)} USDT</td>
+                        <td class="${pnlClass}" style="font-weight: bold; font-family: 'Inter';">${t.pnl >= 0 ? '+' : ''}${safeFix(t.pnl, 4)} USDT</td>
                         <td>
                             <button onclick="showTradeReport(${i})" class="nav-btn" style="padding: 4px 8px; font-size: 11px; margin: 0; background: rgba(0, 223, 216, 0.1); border: 1px solid rgba(0, 223, 216, 0.2); color: var(--accent-cyan); border-radius: 4px; cursor: pointer; font-weight: 600;">📋 جزئیات</button>
                         </td>
@@ -3067,6 +3090,10 @@
                 });
             } else {
                 tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">هیچ معامله‌ای یافت نشد.</td></tr>`;
+            }
+            } catch (err) {
+                console.error("Error in filterTradeHistory:", err);
+                tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--neon-red); padding: 30px; font-weight: bold;">خطا در پردازش اطلاعات: ${err.message}</td></tr>`;
             }
         }
 
