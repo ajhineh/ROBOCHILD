@@ -82,6 +82,7 @@ class FuturesTradingEnv(gym.Env):
         self.sl_price = 0.0
         self.trade_steps = 0
         self.max_holding_steps = 48  # 4 hours if 5-min candles
+        self.live_prices = []
         
         
     def _preprocess_data(self):
@@ -100,6 +101,32 @@ class FuturesTradingEnv(gym.Env):
         # Max scaling for volatility
         max_vol = self.df["volatility"].max() if self.df["volatility"].max() > 0 else 1.0
         self.df["volatility_ratio"] = self.df["volatility"] / max_vol
+
+        # Apply fractional differentiation on mid_price to obtain a stationary price feature
+        from src.analysis.frac_diff import find_optimal_d, frac_diff_ffd
+        series = self.df["mid_price"]
+        opt_d = find_optimal_d(series)
+        
+        # Save to config if symbol is set
+        if self.symbol:
+            config_path = f"models/config_{self.symbol.lower()}.json"
+            import os, json
+            cfg = {}
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                except Exception:
+                    pass
+            cfg["frac_diff_d"] = opt_d
+            try:
+                with open(config_path, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=4)
+            except Exception:
+                pass
+        
+        price_frac = frac_diff_ffd(series, opt_d)
+        self.df["price_frac"] = price_frac.bfill().ffill()
         
     def _get_observation(self):
         """Constructs the current 12-dimensional state vector."""
@@ -109,6 +136,25 @@ class FuturesTradingEnv(gym.Env):
             account = self.live_client.fetch_account_state()
             
             mid_price = market["mid"]
+            self.live_prices.append(mid_price)
+            if len(self.live_prices) > 1000:
+                self.live_prices.pop(0)
+            
+            # load d from config
+            frac_diff_d = 0.35
+            if self.symbol:
+                config_path = f"models/config_{self.symbol.lower()}.json"
+                import os, json
+                if os.path.exists(config_path):
+                    try:
+                        with open(config_path, "r", encoding="utf-8") as f:
+                            cfg = json.load(f)
+                            frac_diff_d = cfg.get("frac_diff_d", 0.35)
+                    except Exception:
+                        pass
+            from src.analysis.frac_diff import get_latest_frac_diff
+            price_frac = get_latest_frac_diff(self.live_prices, frac_diff_d)
+            
             spread_ratio = (market["ask"] - market["bid"]) / (mid_price + 1e-8)
             depth_imbalance = (market["bid_depth"] - market["ask_depth"]) / (market["bid_depth"] + market["ask_depth"] + 1e-8)
             
@@ -122,7 +168,7 @@ class FuturesTradingEnv(gym.Env):
             
             obs = np.array([
                 account["position"] / self.max_inventory,
-                0.5, # progress is stable in continuous streaming
+                price_frac, # fractionally differentiated price feature
                 spread_ratio,
                 depth_imbalance,
                 market.get("convenience_yield", 0.0),
@@ -140,7 +186,7 @@ class FuturesTradingEnv(gym.Env):
             
             obs = np.array([
                 self.position / self.max_inventory,
-                self.current_step / self.n_steps,
+                row["price_frac"], # fractionally differentiated price feature
                 row["spread_ratio"],
                 row["depth_imbalance"],
                 row["convenience_yield"],

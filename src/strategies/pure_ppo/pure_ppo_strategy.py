@@ -90,7 +90,7 @@ class PurePPOStrategy:
         self.volume_bar_price: Dict[str, float] = {sym: 0.0 for sym in symbols}
         
         # بافر قیمت‌های آخرین کندل‌های حجمی تکمیل شده جهت محاسبه نوسان پویا
-        self.completed_bar_prices: Dict[str, deque] = {sym: deque(maxlen=288) for sym in symbols}
+        self.completed_bar_prices: Dict[str, deque] = {sym: deque(maxlen=1000) for sym in symbols}
 
         # تاریخچه سیگنال‌ها و آمارهای مالی داشبورد ربات
         self.history = {
@@ -198,7 +198,7 @@ class PurePPOStrategy:
             
             # محاسبه پویای نوسان جاری از تاریخچه کندل‌های کامل شده قبلی (دِ پرادو)
             if symbol not in self.completed_bar_prices:
-                self.completed_bar_prices[symbol] = deque(maxlen=288)
+                self.completed_bar_prices[symbol] = deque(maxlen=1000)
                 
             completed_prices = list(self.completed_bar_prices[symbol])
             if len(completed_prices) >= 10:
@@ -364,6 +364,27 @@ class PurePPOStrategy:
             prices_list = [p["price"] for p in history]
             volatility_ratio = float(np.std(prices_list) / np.mean(prices_list))
 
+        # بارگذاری پویای frac_diff_d از فایل تنظیمات
+        symbol_clean = symbol.split('/')[0].lower()
+        config_path = os.path.join("models", f"config_{symbol_clean}.json")
+        frac_diff_d = 0.35
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    frac_diff_d = cfg.get("frac_diff_d", 0.35)
+            except Exception:
+                pass
+
+        # محاسبه FFD زنده قیمت
+        from src.analysis.frac_diff import get_latest_frac_diff
+        completed_prices = list(self.completed_bar_prices.get(symbol, []))
+        if len(completed_prices) == 0:
+            price_frac = price
+        else:
+            prices_series = completed_prices + [price]
+            price_frac = get_latest_frac_diff(prices_series, frac_diff_d)
+
         # استفاده از پارسر ویژگی برای ساخت بردار ورودی
         obs = RLStateParser.parse_market_state(
             symbol=symbol,
@@ -374,7 +395,8 @@ class PurePPOStrategy:
             max_inventory=10.0,
             mid_price=price,
             funding_rate=0.0001,
-            basis_ratio=0.0
+            basis_ratio=0.0,
+            price_frac=price_frac
         )
 
         # مقداردهی به بافر فریم‌ها (Frame Stacking)

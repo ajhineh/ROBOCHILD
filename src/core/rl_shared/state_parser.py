@@ -19,7 +19,8 @@ class RLStateParser:
         max_inventory: float,
         mid_price: float,
         funding_rate: float = 0.0001,
-        basis_ratio: float = 0.0
+        basis_ratio: float = 0.0,
+        price_frac: float = 0.5
     ) -> np.ndarray:
         """
         تبدیل پارامترهای بازار به یک بردار وضعیت ۱۲ بعدی ترتیبی.
@@ -27,9 +28,6 @@ class RLStateParser:
         try:
             # ۱. نسبت پوزیشن به سقف مجاز
             pos_ratio = account_position / max_inventory if max_inventory > 0 else 0.0
-            
-            # ۲. پیشرفت دوره (در حالت استریم زنده مقدار ثابت 0.5 قرار می‌گیرد)
-            progress = 0.5
             
             # ۳. نسبت اسپرد به قیمت میانی
             spread_ratio = 0.0
@@ -64,7 +62,7 @@ class RLStateParser:
             # بردار ویژگی نهایی منطبق بر observation_space محیط FuturesTradingEnv
             obs = np.array([
                 pos_ratio,            # 0: Position ratio
-                progress,             # 1: Progress
+                price_frac,           # 1: Fractionally Differentiated price ratio
                 spread_ratio,         # 2: Spread ratio
                 depth_imbalance,      # 3: Depth imbalance (OBI)
                 0.0,                  # 4: Convenience yield (default 0)

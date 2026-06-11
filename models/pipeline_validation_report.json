@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-06-11 12:48:33",
+  "timestamp": "2026-06-11 15:13:52",
   "symbol": "BSB/USDT:USDT",
   "results": {
-    "ram_check": false,
+    "ram_check": true,
     "data_fetch": false,
     "no_overlap": null,
     "mini_train": null,

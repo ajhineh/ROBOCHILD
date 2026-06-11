@@ -98,6 +98,30 @@ def lr_schedule(progress_remaining: float) -> float:
     return final_lr + (initial_lr - final_lr) * progress_remaining
 
 
+def purge_and_embargo_data(train_df: pd.DataFrame, val_df: pd.DataFrame, max_holding_steps: int = 48, embargo_candles: int = 576) -> pd.DataFrame:
+    """
+    Purges and embargoes train_df relative to val_df to prevent data leakage.
+    Assumes train_df is chronologically before val_df.
+    """
+    if len(train_df) == 0 or len(val_df) == 0:
+        return train_df
+        
+    # Purging: Drop the last max_holding_steps of train_df to prevent labels from extending into val_df
+    # Embargoing: To prevent autoregressive feature leakage, add a gap of embargo_candles between train and val
+    total_drop = max_holding_steps + embargo_candles
+    
+    if len(train_df) > total_drop * 2:
+        print(f"[Agent Trainer] Purging & Embargoing: dropping the last {total_drop} candles from train_df.")
+        train_df = train_df.iloc[:-total_drop]
+    else:
+        # Fallback if train_df is too short
+        drop_len = min(len(train_df) // 4, total_drop)
+        print(f"[Agent Trainer] train_df is short. Dropping last {drop_len} candles.")
+        train_df = train_df.iloc[:-drop_len]
+        
+    return train_df
+
+
 def train_agent(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
@@ -112,6 +136,9 @@ def train_agent(
     """
     Trains an Ensemble of agents: PPO-LSTM, SAC, and TD3 sequentially.
     """
+    # Apply Purging & Embargoing to prevent data leakage (de Prado Pitfall #6)
+    train_df = purge_and_embargo_data(train_df, val_df, max_holding_steps=48, embargo_candles=576)
+
     os.makedirs(model_save_dir, exist_ok=True)
     os.makedirs(tb_log_dir, exist_ok=True)
     
