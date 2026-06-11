@@ -32,7 +32,7 @@ logger = logging.getLogger("ROBORDER.Main")
 
 from src.config import Config
 from src.core.hybrid_engine import HybridEngine, ActiveTrade
-from src.core.dex_tracker import SolanaDEXTracker
+# from src.core.dex_tracker import SolanaDEXTracker
 from src.execution.order_executor import OrderExecutor
 from src.core.dashboard_server import start_dashboard_server
 
@@ -166,11 +166,6 @@ async def display_status_loop(engine: HybridEngine, executor: OrderExecutor):
                 lob = engine.latest_lob_results.get(sym)
                 active = engine.yoyo.active_trades.get(sym)
                 
-                # استخراج حجم سواپ‌های بلاکچین سولانا (DEX) در ۱۰ ثانیه اخیر
-                dex_trades = engine.recent_dex_trades.get(sym, [])
-                dex_buy = sum([t["amount"] for t in dex_trades if t["side"] == "buy"])
-                dex_sell = sum([t["amount"] for t in dex_trades if t["side"] == "sell"])
-
                 if active:
                     status_str = f"ACTIVE {active['side'].upper()} ({active['status'].upper()})"
                 else:
@@ -180,7 +175,6 @@ async def display_status_loop(engine: HybridEngine, executor: OrderExecutor):
                     print(
                         f"   • {sym:<18} | وضعیت: {status_str:<12} | OBI: {lob['raw_obi']:+.2f} | "
                         f"خرید ۱۰ث: {lob['market_buy_vol']:<7.1f} | فروش ۱۰ث: {lob['market_sell_vol']:<7.1f} | "
-                        f"DEX خرید: ${dex_buy:<6.1f} | DEX فروش: ${dex_sell:<6.1f} | "
                         f"فریب: {lob['spoof_type']}"
                     )
                 else:
@@ -286,13 +280,16 @@ async def main():
                 local_trade["timestamp"] = int(time.time() * 1000)
                 
                 # ثبت رویداد ورود در تاریخچه سیگنال‌های ربات
+                diag_rep = local_trade.get("diagnostic_report") or {}
+                deciding_model = diag_rep.get("deciding_model", "Ensemble")
                 engine.yoyo.log_signal({
                     "symbol": trade["symbol"],
                     "type": "BUY" if trade["side"] == "long" else "SELL",
                     "price": trade["entry_price_usdt"],
                     "leverage": trade["leverage"],
                     "time": int(time.time()),
-                    "strategy": "PurePPOStrategy"
+                    "strategy": "PurePPOStrategy",
+                    "deciding_model": deciding_model
                 })
 
     engine.set_execution_callbacks(
@@ -306,11 +303,10 @@ async def main():
         )
     )
 
-    # ۴. راه‌اندازی کلاینت پایش و ردیابی معاملات زنجیره‌ای صرافی غیرمتمرکز سولانا (DEX)
-    dex_tracker = SolanaDEXTracker(symbols=Config.SYMBOLS)
-    # اتصال تراکنش‌های بلاکچینی شنود شده به بافرهای هیبرید انجین
-    dex_tracker.set_callback(lambda sym, side, amt: engine.feed_dex_trade(sym, side, amt))
-    await dex_tracker.start()
+    # ۴. راه‌اندازی کلاینت پایش و ردیابی معاملات زنجیره‌ای صرافی غیرمتمرکز سولانا (DEX) - غیرفعال شده
+    # dex_tracker = SolanaDEXTracker(symbols=Config.SYMBOLS)
+    # dex_tracker.set_callback(lambda sym, side, amt: engine.feed_dex_trade(sym, side, amt))
+    # await dex_tracker.start()
 
     # ۵. راه‌اندازی پشته وب‌سوکت CCXT Pro به صورت داینامیک بر اساس آدرس وب‌سوکت سفارشی و شناسه صرافی
     exchange_class = getattr(ccxt, Config.EXCHANGE_ID)
@@ -373,7 +369,8 @@ async def main():
     except Exception as e:
         logger.error(f"Critical error in main loop: {e}")
     finally:
-        await dex_tracker.stop()
+        # await dex_tracker.stop()
+        pass
         if hasattr(engine, "yoyo") and engine.yoyo:
             await engine.yoyo.stop()
         await exchange.close()

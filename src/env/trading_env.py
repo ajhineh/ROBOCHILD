@@ -19,7 +19,7 @@ class FuturesTradingEnv(gym.Env):
         max_inventory: float = 10.0,   # Maximum contracts/units allowed to hold
         transaction_fee_rate: float = 0.0004, # 0.04% execution fee
         base_slippage_rate: float = 0.0002,   # 0.02% base slippage
-        liquidation_penalty_coef: float = 0.05, # Forced terminal liquidation cost
+        liquidation_penalty_coef: float = 0.0008, # Reduced to 0.08% to match normal close transaction fee + slippage proxy
         live_client = None,            # Live exchange client for Phase 4 streaming
         symbol: str = None             # Symbol name
     ):
@@ -209,20 +209,9 @@ class FuturesTradingEnv(gym.Env):
             volatility = row["volatility_ratio"]
             market_depth = (row["bid_depth"] + row["ask_depth"]) / 2.0
             
-            # 1. Limit order shadow-based price simulation with safe fallbacks
-            if trade_size > 0: # Buying (Long entry or Short exit)
-                ref_price = row.get("f_low", row.get("futures_price", mid_price))
-                if pd.isna(ref_price) or ref_price <= 0:
-                    ref_price = row.get("futures_price", mid_price)
-                if pd.isna(ref_price) or ref_price <= 0:
-                    ref_price = mid_price
-            elif trade_size < 0: # Selling (Short entry or Long exit)
-                ref_price = row.get("f_high", row.get("futures_price", mid_price))
-                if pd.isna(ref_price) or ref_price <= 0:
-                    ref_price = row.get("futures_price", mid_price)
-                if pd.isna(ref_price) or ref_price <= 0:
-                    ref_price = mid_price
-            else:
+            # 1. Price execution simulation on current candle close price (Removes look-ahead bias f_low/f_high)
+            ref_price = row.get("futures_price", mid_price)
+            if pd.isna(ref_price) or ref_price <= 0:
                 ref_price = mid_price
             
             # Volatility-adaptive slippage on top of reference execution price
@@ -259,6 +248,12 @@ class FuturesTradingEnv(gym.Env):
             # 3. New reward function: Reward = (PnL_Pct * 100) - (Drawdown_Pct * 100 * 0.5) - Fee_Pct
             reward = (pnl_pct * 100.0) - (drawdown_pct * 100.0 * 0.5) - fee_pct
             
+            # 4. Action Change Penalty (Strong penalty to discourage excessive over-trading)
+            if abs(trade_size) > 1e-8:
+                # Penalty scales with transaction frequency and size
+                action_penalty_pct = (trade_value / self.portfolio_value) * 0.5 # 0.5% penalty of trade value to prevent small jittery trades
+                reward -= action_penalty_pct * 100.0
+            
             # Apply symmetric reward scaling for successful (profitable) trades
             if pnl_pct > 0:
                 if self.position > 1e-8: # Successful LONG
@@ -266,9 +261,9 @@ class FuturesTradingEnv(gym.Env):
                 elif self.position < -1e-8: # Successful SHORT
                     reward *= 1.5
             
-            # 4. Holding penalty (reduced from 0.005 to 0.0005 per step if position was held during the step)
+            # 5. Holding penalty (increased from 0.0005 to 0.003 per step to encourage faster, high-probability exits)
             if abs(target_position) > 1e-8:
-                reward -= 0.0005
+                reward -= 0.003
                 
             self.portfolio_value = new_portfolio_value
             

@@ -1,0 +1,17 @@
+{
+    "vf_coef": 0.8,
+    "n_steps": 4096,
+    "batch_size": 128,
+    "gamma": 0.98,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.05,
+    "ppo_weight": 0.5,
+    "sac_weight": 0.3,
+    "td3_weight": 0.2,
+    "ensemble_threshold": 0.35,
+    "take_profit_bps": 25,
+    "stop_loss_bps": 12,
+    "last_trained_at": "2026-06-10 23:05:00",
+    "best_sharpe": 0.0
+}

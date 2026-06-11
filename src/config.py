@@ -85,11 +85,11 @@ class Config:
     COOLDOWN_MS: int = 30000
 
     # --- مدیریت ریسک PTRC ---
-    MAX_CONCURRENT_POSITIONS: int = 2
+    MAX_CONCURRENT_POSITIONS: int = 3
     MAX_DRAWDOWN_LIMIT_USDT: float = 100.0
     INITIAL_BALANCE: float = 10000.0
     CURRENT_BALANCE: float = 10000.0
-    TRADE_CAPITAL_PCT: float = 10.0
+    TRADE_CAPITAL_PCT: float = 25.0
     TP1_EXIT_PCT: float = 50.0
     USE_ONLY_PPO: bool = False
     USE_YOYO_STRATEGY: bool = True
@@ -98,6 +98,7 @@ class Config:
     MAX_LEVERAGE: int = 25
     BYPASSED_FILTERS: str = ""
     BYPASSED_FILTERS_SET: set = set()
+    SCREENER_ENABLED: bool = True  # فعال/غیرفعال بودن جستجوگر آلت‌کوین‌ها
 
     @classmethod
     def reload(cls) -> None:
@@ -110,7 +111,8 @@ class Config:
             "SPOOF_THRESHOLD_PCT", "MOMENTUM_WINDOW_MS", "SPREAD_THRESHOLD_BPS",
             "TAKE_PROFIT_BPS", "STOP_LOSS_BPS", "COOLDOWN_MS", "MAX_CONCURRENT_POSITIONS",
             "MAX_DRAWDOWN_LIMIT_USDT", "INITIAL_BALANCE", "CURRENT_BALANCE", "TRADE_CAPITAL_PCT",
-            "TP1_EXIT_PCT", "USE_ONLY_PPO", "USE_YOYO_STRATEGY", "YOYO_RISK_PCT", "DEFAULT_LEVERAGE", "MAX_LEVERAGE", "BYPASSED_FILTERS"
+            "TP1_EXIT_PCT", "USE_ONLY_PPO", "USE_YOYO_STRATEGY", "YOYO_RISK_PCT", "DEFAULT_LEVERAGE",
+            "MAX_LEVERAGE", "BYPASSED_FILTERS", "SCREENER_ENABLED"
         ]
         for key in keys_to_clear:
             os.environ.pop(key, None)
@@ -126,25 +128,25 @@ class Config:
         cls.HELIUS_WS_URL = os.getenv("HELIUS_WS_URL", "")
         cls.QUICKNODE_WS_URL = os.getenv("QUICKNODE_WS_URL", "")
         cls.HISTORY_FILE_PATH = os.getenv("HISTORY_FILE_PATH", "microtick_history.json")
-
+        
         raw_symbols = os.getenv("SYMBOLS", "POPCAT/USDT:USDT,WIF/USDT:USDT,BOME/USDT:USDT,SOL/USDT:USDT")
         cls.SYMBOLS = [sym.strip() for sym in raw_symbols.split(",") if sym.strip()]
-
+        
         cls.LOB_DEPTH_LEVELS = int(os.getenv("LOB_DEPTH_LEVELS", "5"))
         cls.TRADE_WINDOW_SECONDS = int(os.getenv("TRADE_WINDOW_SECONDS", "10"))
         cls.SPOOF_THRESHOLD_PCT = float(os.getenv("SPOOF_THRESHOLD_PCT", "0.15"))
-
+        
         cls.MOMENTUM_WINDOW_MS = int(os.getenv("MOMENTUM_WINDOW_MS", "10000"))
         cls.SPREAD_THRESHOLD_BPS = int(os.getenv("SPREAD_THRESHOLD_BPS", "8"))
         cls.TAKE_PROFIT_BPS = int(os.getenv("TAKE_PROFIT_BPS", "15"))
         cls.STOP_LOSS_BPS = int(os.getenv("STOP_LOSS_BPS", "10"))
         cls.COOLDOWN_MS = int(os.getenv("COOLDOWN_MS", "30000"))
-
-        cls.MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "2"))
+        
+        cls.MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "3"))
         cls.MAX_DRAWDOWN_LIMIT_USDT = float(os.getenv("MAX_DRAWDOWN_LIMIT_USDT", "100.0"))
         cls.INITIAL_BALANCE = float(os.getenv("INITIAL_BALANCE", "10000.0"))
         cls.CURRENT_BALANCE = float(os.getenv("CURRENT_BALANCE", "10000.0"))
-        cls.TRADE_CAPITAL_PCT = float(os.getenv("TRADE_CAPITAL_PCT", "10.0"))
+        cls.TRADE_CAPITAL_PCT = float(os.getenv("TRADE_CAPITAL_PCT", "25.0"))
         cls.TP1_EXIT_PCT = float(os.getenv("TP1_EXIT_PCT", "50.0"))
         cls.USE_ONLY_PPO = os.getenv("USE_ONLY_PPO", "false").lower() == "true"
         cls.USE_YOYO_STRATEGY = not cls.USE_ONLY_PPO
@@ -153,6 +155,7 @@ class Config:
         cls.MAX_LEVERAGE = int(os.getenv("MAX_LEVERAGE", "25"))
         cls.BYPASSED_FILTERS = os.getenv("BYPASSED_FILTERS", "")
         cls.BYPASSED_FILTERS_SET = {f.strip() for f in cls.BYPASSED_FILTERS.split(",") if f.strip()}
+        cls.SCREENER_ENABLED = os.getenv("SCREENER_ENABLED", "true").lower() == "true"
         logger.info("🔄 Config properties reloaded successfully.")
 
 

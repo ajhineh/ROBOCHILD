@@ -12,6 +12,7 @@ import socket
 import urllib.parse
 
 from src.config import Config, save_env_values
+import src.core.api.handlers as api_handlers
 
 logger = logging.getLogger("ROBORDER.Dashboard")
 if not logger.handlers:
@@ -21,24 +22,28 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
-# متغیرهای اشتراک‌گذاری‌شده در سطح حافظه مشترک فرآیند پایتون
+# ظ…طھط؛غŒط±ظ‡ط§غŒ ط§ط´طھط±ط§ع©â€Œع¯ط°ط§ط±غŒâ€Œط´ط¯ظ‡ ط¯ط± ط³ط·ط­ ط­ط§ظپط¸ظ‡ ظ…ط´طھط±ع© ظپط±ط¢غŒظ†ط¯ ظ¾ط§غŒطھظˆظ†
 global_engine = None
 global_executor = None
-global_loop = None  # رفرنس ایمن به حلقه اصلی asyncio جهت زمان‌بندی تسک‌ها از تردهای پس‌زمینه
+global_loop = None  # ط±ظپط±ظ†ط³ ط§غŒظ…ظ† ط¨ظ‡ ط­ظ„ظ‚ظ‡ ط§طµظ„غŒ asyncio ط¬ظ‡طھ ط²ظ…ط§ظ†â€Œط¨ظ†ط¯غŒ طھط³ع©â€Œظ‡ط§ ط§ط² طھط±ط¯ظ‡ط§غŒ ظ¾ط³â€Œط²ظ…غŒظ†ظ‡
 PORT = 6006
 
-# رجیستری آموزش شبکه عصبی پس‌زمینه
+# ط±ط¬غŒط³طھط±غŒ ط¢ظ…ظˆط²ط´ ط´ط¨ع©ظ‡ ط¹طµط¨غŒ ظ¾ط³â€Œط²ظ…غŒظ†ظ‡
 active_trainings = {}
 training_stops = {}
 
-# کش پینگ شبکه HFT
+# روتین‌های آنالیزور هوش عصبی پس‌زمینه
+active_analyses = {}
+analysis_logs = {}
+
+# ع©ط´ ظ¾غŒظ†ع¯ ط´ط¨ع©ظ‡ HFT
 global_pings = {
     "binance": 0.0,
     "solana_rpc": 0.0
 }
 
 def measure_ping_sync(url_or_host: str) -> float:
-    """اندازه‌گیری پینگ TCP به سرور مشخص روی پورت ۴۴۳"""
+    """ط§ظ†ط¯ط§ط²ظ‡â€Œع¯غŒط±غŒ ظ¾غŒظ†ع¯ TCP ط¨ظ‡ ط³ط±ظˆط± ظ…ط´ط®طµ ط±ظˆغŒ ظ¾ظˆط±طھ غ´غ´غ³"""
     try:
         if "://" in url_or_host:
             parsed = urllib.parse.urlparse(url_or_host)
@@ -54,14 +59,14 @@ def measure_ping_sync(url_or_host: str) -> float:
         return 999.9
 
 def ping_updater_loop():
-    """حلقه زمان‌بندی اندازه‌گیری پینگ‌ها در پس‌زمینه هر ۱۰ ثانیه"""
+    """ط­ظ„ظ‚ظ‡ ط²ظ…ط§ظ†â€Œط¨ظ†ط¯غŒ ط§ظ†ط¯ط§ط²ظ‡â€Œع¯غŒط±غŒ ظ¾غŒظ†ع¯â€Œظ‡ط§ ط¯ط± ظ¾ط³â€Œط²ظ…غŒظ†ظ‡ ظ‡ط± غ±غ° ط«ط§ظ†غŒظ‡"""
     global global_pings
     while True:
         try:
-            # اندازه‌گیری پینگ وب‌سوکت بایننس فیوچرز
+            # ط§ظ†ط¯ط§ط²ظ‡â€Œع¯غŒط±غŒ ظ¾غŒظ†ع¯ ظˆط¨â€Œط³ظˆع©طھ ط¨ط§غŒظ†ظ†ط³ ظپغŒظˆع†ط±ط²
             global_pings["binance"] = measure_ping_sync("fstream.binance.com")
             
-            # اندازه‌گیری پینگ سرور RPC سولانا (هلیوس یا پیش‌فرض)
+            # ط§ظ†ط¯ط§ط²ظ‡â€Œع¯غŒط±غŒ ظ¾غŒظ†ع¯ ط³ط±ظˆط± RPC ط³ظˆظ„ط§ظ†ط§ (ظ‡ظ„غŒظˆط³ غŒط§ ظ¾غŒط´â€Œظپط±ط¶)
             solana_endpoint = Config.HELIUS_WS_URL or "mainnet.helius-rpc.com"
             global_pings["solana_rpc"] = measure_ping_sync(solana_endpoint)
         except Exception:
@@ -70,9 +75,9 @@ def ping_updater_loop():
 
 
 def log_event(message: str):
-    """ثبت پیام در فایل لاگ اصلی سیستم"""
-    logger.info(f"📝 [Dashboard Log] {message}")
-    # الحاق به فایل لاگ به عنوان رکورد متنی سراسری
+    """ط«ط¨طھ ظ¾غŒط§ظ… ط¯ط± ظپط§غŒظ„ ظ„ط§ع¯ ط§طµظ„غŒ ط³غŒط³طھظ…"""
+    logger.info(f"ًں“‌ [Dashboard Log] {message}")
+    # ط§ظ„ط­ط§ظ‚ ط¨ظ‡ ظپط§غŒظ„ ظ„ط§ع¯ ط¨ظ‡ ط¹ظ†ظˆط§ظ† ط±ع©ظˆط±ط¯ ظ…طھظ†غŒ ط³ط±ط§ط³ط±غŒ
     try:
         with open("robochild_x.log", "a", encoding="utf-8") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - ROBORDER.Dashboard - INFO - {message}\n")
@@ -81,7 +86,7 @@ def log_event(message: str):
 
 
 def scan_existing_models():
-    """اسکن مدل‌های پایتون آموزش‌دیده موجود در پوشه models/"""
+    """ط§ط³ع©ظ† ظ…ط¯ظ„â€Œظ‡ط§غŒ ظ¾ط§غŒطھظˆظ† ط¢ظ…ظˆط²ط´â€Œط¯غŒط¯ظ‡ ظ…ظˆط¬ظˆط¯ ط¯ط± ظ¾ظˆط´ظ‡ models/"""
     if not os.path.exists("models"):
         os.makedirs("models", exist_ok=True)
     models_dir = "models"
@@ -90,6 +95,9 @@ def scan_existing_models():
         for f in os.listdir(models_dir):
             if f.endswith("_final.zip"):
                 parts = f.replace("ppo_volume_bars_child_", "").replace("_final.zip", "")
+                for suffix in ["_ppo", "_sac", "_td3"]:
+                    if parts.endswith(suffix):
+                        parts = parts[:-len(suffix)]
                 if parts == "final" or parts == "bot" or parts == "" or parts == "final.zip":
                     symbol = "BTC/USDT"
                 else:
@@ -102,8 +110,56 @@ def scan_existing_models():
     return list(set(available))
 
 
+def auto_activate_symbol(symbol: str):
+    """
+    فعال‌سازی خودکار و داینامیک جفت ارز در ربات معاملاتی زنده
+    """
+    global global_engine, global_executor, global_loop
+    symbol = symbol.upper().strip()
+    if symbol in Config.SYMBOLS:
+        log_event(f"ℹ️ جفت ارز {symbol} از قبل در لیست ترید فعال است.")
+        return
+
+    Config.SYMBOLS.append(symbol)
+    from src.config import save_env_values
+    save_env_values({"SYMBOLS": ",".join(Config.SYMBOLS)})
+    log_event(f"➕ [فعال‌سازی خودکار] جفت ارز {symbol} با موفقیت به فایل .env و حافظه موقت اضافه شد.")
+
+    if global_engine:
+        if symbol not in global_engine.symbols:
+            global_engine.symbols.append(symbol)
+            
+        # مقداردهی deque برای DEX
+        if symbol not in global_engine.recent_dex_trades:
+            from collections import deque
+            global_engine.recent_dex_trades[symbol] = deque()
+            
+        if hasattr(global_engine, "yoyo") and global_engine.yoyo:
+            if symbol not in global_engine.yoyo.symbols:
+                global_engine.yoyo.symbols.append(symbol)
+                global_engine.yoyo.candles_1m[symbol] = []
+                global_engine.yoyo.candles_3m[symbol] = []
+                global_engine.yoyo.candles_15m[symbol] = []
+                global_engine.yoyo.current_1m[symbol] = None
+                global_engine.yoyo.current_3m[symbol] = None
+                global_engine.yoyo.current_15m[symbol] = None
+                global_engine.yoyo.last_order_placed_time[symbol] = 0.0
+
+            # مقداردهی به شمع‌های تاریخی به صورت پس‌زمینه (thread-safe)
+            import asyncio as _asyncio
+            exch = global_executor.exchange if (global_executor and hasattr(global_executor, 'exchange')) else None
+            if global_loop and exch:
+                try:
+                    _asyncio.run_coroutine_threadsafe(global_engine.yoyo.initialize_candles(exch), global_loop)
+                except Exception as e:
+                    log_event(f"⚠️ خطای غیرمنتظره در مقداردهی شمع‌های YoYo برای {symbol}: {e}")
+                    global_engine.yoyo._generate_mock_historical_candles(symbol)
+            else:
+                global_engine.yoyo._generate_mock_historical_candles(symbol)
+
+
 def background_train_orchestrator(symbol: str, steps: int = 200000, resume: bool = False, learning_rate: str = "linear_0.0003"):
-    """اجرای غیرمسدودکننده (Background Thread) فرآیند واکشی داده‌های تاریخی و آموزش مدل یادگیری تقویت‌پذیر"""
+    """ط§ط¬ط±ط§غŒ ط؛غŒط±ظ…ط³ط¯ظˆط¯ع©ظ†ظ†ط¯ظ‡ (Background Thread) ظپط±ط¢غŒظ†ط¯ ظˆط§ع©ط´غŒ ط¯ط§ط¯ظ‡â€Œظ‡ط§غŒ طھط§ط±غŒط®غŒ ظˆ ط¢ظ…ظˆط²ط´ ظ…ط¯ظ„ غŒط§ط¯ع¯غŒط±غŒ طھظ‚ظˆغŒطھâ€Œظ¾ط°غŒط±"""
     global active_trainings, training_stops
     symbol = re.sub(r'[^a-zA-Z0-9/:-]', '', symbol).upper().strip()
     symbol_clean = symbol.split('/')[0].lower()
@@ -111,13 +167,13 @@ def background_train_orchestrator(symbol: str, steps: int = 200000, resume: bool
     active_trainings[symbol_clean] = True
     training_stops.pop(symbol_clean, None)
 
-    # تقسیم‌بندی زمانی میم‌کوین‌ها روی تایم‌فریم ۱ دقیقه‌ای و ارزهای شاخص روی ۵ دقیقه‌ای
+    # طھظ‚ط³غŒظ…â€Œط¨ظ†ط¯غŒ ط²ظ…ط§ظ†غŒ ظ…غŒظ…â€Œع©ظˆغŒظ†â€Œظ‡ط§ ط±ظˆغŒ طھط§غŒظ…â€Œظپط±غŒظ… غ± ط¯ظ‚غŒظ‚ظ‡â€Œط§غŒ ظˆ ط§ط±ط²ظ‡ط§غŒ ط´ط§ط®طµ ط±ظˆغŒ غµ ط¯ظ‚غŒظ‚ظ‡â€Œط§غŒ
     is_meme = symbol_clean in ["bome", "pepe", "doge", "shib", "wif", "bonk", "floki", "popcat"]
     timeframe = "1m" if is_meme else "5m"
     days_back = 45 if timeframe == "1m" else 60
 
-    log_event(f"🧠 شروع آموزش پس‌زمینه شبکه عصبی هوش مصنوعی برای {symbol}...")
-    log_event(f"🧠 تخصیص تعداد {steps:,} گام روی تایم‌فریم {timeframe} ({days_back} روز داده تاریخی)")
+    log_event(f"ًں§  ط´ط±ظˆط¹ ط¢ظ…ظˆط²ط´ ظ¾ط³â€Œط²ظ…غŒظ†ظ‡ ط´ط¨ع©ظ‡ ط¹طµط¨غŒ ظ‡ظˆط´ ظ…طµظ†ظˆط¹غŒ ط¨ط±ط§غŒ {symbol}...")
+    log_event(f"ًں§  طھط®طµغŒطµ طھط¹ط¯ط§ط¯ {steps:,} ع¯ط§ظ… ط±ظˆغŒ طھط§غŒظ…â€Œظپط±غŒظ… {timeframe} ({days_back} ط±ظˆط² ط¯ط§ط¯ظ‡ طھط§ط±غŒط®غŒ)")
 
     progress_file = os.path.join("models", f"progress_ppo_volume_bars_child_{symbol_clean}.json")
     os.makedirs("models", exist_ok=True)
@@ -137,7 +193,7 @@ def background_train_orchestrator(symbol: str, steps: int = 200000, resume: bool
         def check_stop():
             return training_stops.get(symbol_clean, False)
 
-        # ۱. واکشی داده‌های واقعی با قابلیت لغو سریع
+        # غ±. ظˆط§ع©ط´غŒ ط¯ط§ط¯ظ‡â€Œظ‡ط§غŒ ظˆط§ظ‚ط¹غŒ ط¨ط§ ظ‚ط§ط¨ظ„غŒطھ ظ„ط؛ظˆ ط³ط±غŒط¹
         df = fetch_real_binance_data(
             symbol=symbol,
             timeframe=timeframe,
@@ -146,17 +202,17 @@ def background_train_orchestrator(symbol: str, steps: int = 200000, resume: bool
         )
 
         if check_stop():
-            log_event(f"⏹️ فرآیند آموزش {symbol} قبل از استارت متوقف شد.")
+            log_event(f"âڈ¹ï¸ڈ ظپط±ط¢غŒظ†ط¯ ط¢ظ…ظˆط²ط´ {symbol} ظ‚ط¨ظ„ ط§ط² ط§ط³طھط§ط±طھ ظ…طھظˆظ‚ظپ ط´ط¯.")
             active_trainings.pop(symbol_clean, None)
             training_stops.pop(symbol_clean, None)
             return
 
-        # ۲. جداسازی داده‌های آموزش و ارزیابی
+        # غ². ط¬ط¯ط§ط³ط§ط²غŒ ط¯ط§ط¯ظ‡â€Œظ‡ط§غŒ ط¢ظ…ظˆط²ط´ ظˆ ط§ط±ط²غŒط§ط¨غŒ
         split_idx = int(len(df) * 0.8)
         train_df = df.iloc[:split_idx]
         val_df = df.iloc[split_idx:]
 
-        # ۳. اجرای فرآیند استیبل بیسلاینز
+        # غ³. ط§ط¬ط±ط§غŒ ظپط±ط¢غŒظ†ط¯ ط§ط³طھغŒط¨ظ„ ط¨غŒط³ظ„ط§غŒظ†ط²
         train_agent(
             train_df=train_df,
             val_df=val_df,
@@ -170,14 +226,14 @@ def background_train_orchestrator(symbol: str, steps: int = 200000, resume: bool
         )
 
         if check_stop():
-            log_event(f"⏹️ فرآیند آموزش {symbol} به صورت زودهنگام لغو شد.")
+            log_event(f"âڈ¹ï¸ڈ ظپط±ط¢غŒظ†ط¯ ط¢ظ…ظˆط²ط´ {symbol} ط¨ظ‡ طµظˆط±طھ ط²ظˆط¯ظ‡ظ†ع¯ط§ظ… ظ„ط؛ظˆ ط´ط¯.")
             active_trainings.pop(symbol_clean, None)
             training_stops.pop(symbol_clean, None)
             return
 
-        log_event(f"🎉 آموزش شبکه عصبی هوش مصنوعی برای {symbol} با موفقیت ۱۰۰٪ پایان یافت!")
+        log_event(f"ًںژ‰ ط¢ظ…ظˆط²ط´ ط´ط¨ع©ظ‡ ط¹طµط¨غŒ ظ‡ظˆط´ ظ…طµظ†ظˆط¹غŒ ط¨ط±ط§غŒ {symbol} ط¨ط§ ظ…ظˆظپظ‚غŒطھ غ±غ°غ°ظھ ظ¾ط§غŒط§ظ† غŒط§ظپطھ!")
         
-        # پاک‌سازی استپ و اتمام وضعیت
+        # ظ¾ط§ع©â€Œط³ط§ط²غŒ ط§ط³طھظ¾ ظˆ ط§طھظ…ط§ظ… ظˆط¶ط¹غŒطھ
         with open(progress_file, "w") as f:
             json.dump({
                 "model_name": f"ppo_volume_bars_child_{symbol_clean}",
@@ -189,7 +245,7 @@ def background_train_orchestrator(symbol: str, steps: int = 200000, resume: bool
 
     except Exception as e:
         if check_stop():
-            log_event(f"⏹️ فرآیند آموزش {symbol} با موفقیت متوقف شد.")
+            log_event(f"âڈ¹ï¸ڈ ظپط±ط¢غŒظ†ط¯ ط¢ظ…ظˆط²ط´ {symbol} ط¨ط§ ظ…ظˆظپظ‚غŒطھ ظ…طھظˆظ‚ظپ ط´ط¯.")
             with open(progress_file, "w") as f:
                 json.dump({
                     "model_name": f"ppo_volume_bars_child_{symbol_clean}",
@@ -199,7 +255,7 @@ def background_train_orchestrator(symbol: str, steps: int = 200000, resume: bool
                     "status": "stopped"
                 }, f)
         else:
-            log_event(f"❌ خطای بحرانی در آموزش مدل {symbol}: {e}")
+            log_event(f"â‌Œ ط®ط·ط§غŒ ط¨ط­ط±ط§ظ†غŒ ط¯ط± ط¢ظ…ظˆط²ط´ ظ…ط¯ظ„ {symbol}: {e}")
             with open(progress_file, "w") as f:
                 json.dump({
                     "model_name": f"ppo_volume_bars_child_{symbol_clean}",
@@ -213,13 +269,45 @@ def background_train_orchestrator(symbol: str, steps: int = 200000, resume: bool
         training_stops.pop(symbol_clean, None)
 
 
+def background_analysis_orchestrator(symbol: str, market_type: str = "futures", days_back: int = 5):
+    """اجرای غیرمسدودکننده آنالیزور فوق پیشرفته هوش عصبی در پس‌زمینه"""
+    global active_analyses, analysis_logs
+    symbol_clean = symbol.split('/')[0].lower()
+    active_analyses[symbol_clean] = "running"
+    analysis_logs[symbol_clean] = []
+    
+    def log_to_analysis(msg):
+        if symbol_clean not in analysis_logs:
+            analysis_logs[symbol_clean] = []
+        analysis_logs[symbol_clean].append(f"{time.strftime('%H:%M:%S')} - {msg}")
+        logger.info(f"🔎 [AI Analyzer] {msg}")
+
+    log_to_analysis(f"شروع ارزیابی پیشرفته برای جفت‌ارز {symbol.upper()} ({market_type.upper()}، {days_back} روزه)...")
+    
+    try:
+        from src.analysis.training_evaluator import UltraEnsembleEvaluator
+        evaluator = UltraEnsembleEvaluator(symbol=symbol_clean, base_path=".", market_type=market_type, days_back=days_back)
+        
+        # تغییر دادن لاگر پیش‌فرض جهت ثبت مستقیم در متغیرهای داشبورد
+        evaluator.log = log_to_analysis
+        
+        # اجرای بک‌تست و تحلیل
+        evaluator.run_full_analysis()
+        
+        active_analyses[symbol_clean] = "completed"
+        log_to_analysis("عملیات آنالیز با موفقیت پایان یافت.")
+    except Exception as e:
+        active_analyses[symbol_clean] = f"error: {str(e)}"
+        log_to_analysis(f"❌ خطای بحرانی در اجرای آنالیزور: {e}")
+
+
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
     """
-    هندلر درخواست‌های HTTP سرور داشبورد.
-    این کلاس درخواست‌های مربوط به صفحات استاتیک و رابط‌های برنامه‌نویسی (API) ربات را هدایت می‌کند.
+    ظ‡ظ†ط¯ظ„ط± ط¯ط±ط®ظˆط§ط³طھâ€Œظ‡ط§غŒ HTTP ط³ط±ظˆط± ط¯ط§ط´ط¨ظˆط±ط¯.
+    ط§غŒظ† ع©ظ„ط§ط³ ط¯ط±ط®ظˆط§ط³طھâ€Œظ‡ط§غŒ ظ…ط±ط¨ظˆط· ط¨ظ‡ طµظپط­ط§طھ ط§ط³طھط§طھغŒع© ظˆ ط±ط§ط¨ط·â€Œظ‡ط§غŒ ط¨ط±ظ†ط§ظ…ظ‡â€Œظ†ظˆغŒط³غŒ (API) ط±ط¨ط§طھ ط±ط§ ظ‡ط¯ط§غŒطھ ظ…غŒâ€Œع©ظ†ط¯.
     """
     def log_message(self, format, *args):
-        # غیرفعال کردن لاگ خروجی پیش‌فرض HTTP سرور در ترمینال جهت تمیز ماندن داشبورد متنی
+        # ط؛غŒط±ظپط¹ط§ظ„ ع©ط±ط¯ظ† ظ„ط§ع¯ ط®ط±ظˆط¬غŒ ظ¾غŒط´â€Œظپط±ط¶ HTTP ط³ط±ظˆط± ط¯ط± طھط±ظ…غŒظ†ط§ظ„ ط¬ظ‡طھ طھظ…غŒط² ظ…ط§ظ†ط¯ظ† ط¯ط§ط´ط¨ظˆط±ط¯ ظ…طھظ†غŒ
         pass
 
     def end_headers(self):
@@ -233,7 +321,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        # ۱. روتینگ صفحات استاتیک داشبورد
+        # غ±. ط±ظˆطھغŒظ†ع¯ طµظپط­ط§طھ ط§ط³طھط§طھغŒع© ط¯ط§ط´ط¨ظˆط±ط¯
         if self.path == "/" or self.path == "/index.html":
             self.serve_static("static/index.html", "text/html")
             return
@@ -250,8 +338,20 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 mime = "application/javascript"
             self.serve_static(clean_path, mime)
             return
-
-        # ۲. روتینگ درخواست‌های API زنده
+        elif self.path.startswith("/analysis/"):
+            clean_path = self.path.lstrip("/")
+            if ".." in clean_path:
+                self.send_error(403, "Access Denied")
+                return
+            ext = clean_path.split(".")[-1]
+            mime = "text/html"
+            if ext == "png":
+                mime = "image/png"
+            elif ext == "json":
+                mime = "application/json"
+            self.serve_static(clean_path, mime)
+            return
+        # غ². ط±ظˆطھغŒظ†ع¯ ط¯ط±ط®ظˆط§ط³طھâ€Œظ‡ط§غŒ API ط²ظ†ط¯ظ‡
         elif self.path == "/api/status":
             self.handle_api_status()
         elif self.path == "/api/training_status":
@@ -264,6 +364,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.handle_api_check_model()
         elif self.path == "/api/export_csv":
             self.handle_api_export_csv()
+        elif self.path.startswith("/api/analysis_status"):
+            self.handle_api_analysis_status()
+        elif self.path == "/api/screener":
+            self.handle_api_screener()
         else:
             self.send_error(404, "API endpoint not found")
 
@@ -297,11 +401,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.handle_api_close_position(body)
         elif self.path == "/api/set_bot_settings":
             self.handle_api_set_bot_settings(body)
+        elif self.path == "/api/run_analyzer":
+            self.handle_api_run_analyzer(body)
         else:
             self.send_error(404, "Endpoint not found")
 
     def serve_static(self, filepath: str, mime_type: str):
-        """خواندن و ارسال فایل‌های استاتیک HTML/CSS/JS"""
+        """ط®ظˆط§ظ†ط¯ظ† ظˆ ط§ط±ط³ط§ظ„ ظپط§غŒظ„â€Œظ‡ط§غŒ ط§ط³طھط§طھغŒع© HTML/CSS/JS"""
         if not os.path.exists(filepath):
             self.send_error(404, f"File {filepath} not found")
             return
@@ -318,7 +424,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(500, f"Error reading file: {e}")
 
     def send_json(self, data: dict, status_code: int = 200):
-        """ارسال پاسخ JSON استاندارد به مرورگر"""
+        """ط§ط±ط³ط§ظ„ ظ¾ط§ط³ط® JSON ط§ط³طھط§ظ†ط¯ط§ط±ط¯ ط¨ظ‡ ظ…ط±ظˆط±ع¯ط±"""
         try:
             content = json.dumps(data, ensure_ascii=False).encode("utf-8")
             self.send_response(status_code)
@@ -331,174 +437,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     def handle_api_status(self):
         """ارائه وضعیت لحظه‌ای متغیرها، پوزیشن‌های باز، آمار دروداون و اندیکاتورهای ربات"""
-        global global_engine, global_executor
-        
-        # ۱. وضعیت پورتفولیو و دروداون حساب
-        portfolio = {
-            "balance": Config.CURRENT_BALANCE,
-            "unrealized_pnl": 0.0,
-            "equity": Config.CURRENT_BALANCE,
-            "drawdown": 0.0,
-            "status": "Paper Simulation"
-        }
-        
-        open_positions = []
-
-        if global_executor:
-            # محاسبه ارزش حدودی پورتفولیو بر پایه دروداون و سود حاصل
-            portfolio["drawdown"] = round(global_executor.current_drawdown, 2)
-            portfolio["status"] = "Live Futures" if global_executor.live_trading else "Paper Simulation"
-            
-            # استخراج معاملات و پوزیشن‌های باز
-            pnl_sum = 0.0
-            used_margin = 0.0
-            for sym, pos in global_executor.open_positions.items():
-                pos_pnl = 0.0
-                if global_engine and sym in global_engine.latest_lob_results:
-                    mid = global_engine.latest_lob_results[sym]["mid_price"]
-                    entry = pos["entry_price"]
-                    if pos["side"] == "long":
-                        pos_pnl = ((mid - entry) / entry) * 100.0 * pos["leverage"]
-                    else:
-                        pos_pnl = ((entry - mid) / entry) * 100.0 * pos["leverage"]
-                    
-                pnl_sum += (pos.get("amount", 0.0) * (pos_pnl / 100.0))  # محاسبه سود و زیان دلاری بر مبنای حجم واقعی
-                used_margin += pos.get("amount", 0.0)
-                
-                open_positions.append({
-                    "symbol": sym,
-                    "side": pos["side"],
-                    "leverage": pos["leverage"],
-                    "entry_price": pos["entry_price"],
-                    "tp": pos["tp"],
-                    "sl": pos["sl"],
-                    "pnl": round(pos_pnl, 2)
-                })
-            
-            portfolio["unrealized_pnl"] = round(pnl_sum, 2)
-            portfolio["equity"] = round(Config.CURRENT_BALANCE + pnl_sum, 2)
-            portfolio["balance"] = round(Config.CURRENT_BALANCE - used_margin, 2)  # موجودی مارجین آزاد حساب (Margin)
-
-        # ۲. اندیکاتورهای زنده LOB، OBI و معاملات غیرمتمرکز شبکه سولانا (DEX)
-        active_bots = []
-        if global_engine:
-            for sym in Config.SYMBOLS:
-                lob = global_engine.latest_lob_results.get(sym)
-                active = global_engine.yoyo.active_trades.get(sym)
-                
-                # استخراج سواپ‌های زنجیره‌ای سولانا (محدود به ۱۰ ثانیه اخیر جهت نمایش صحیح کارت ۱۰ ثانیه داشبورد)
-                dex_trades = global_engine.recent_dex_trades.get(sym, [])
-                now_ms_dash = int(time.time() * 1000)
-                dex_trades_10s = [t for t in dex_trades if (now_ms_dash - t["timestamp"]) <= 10000]
-                dex_buy = sum([t["amount"] for t in dex_trades_10s if t["side"] == "buy"])
-                dex_sell = sum([t["amount"] for t in dex_trades_10s if t["side"] == "sell"])
-
-                # بررسی مدل شبکه عصبی آموزش‌دیده (پشتیبانی از Ensemble و PPO تک عاملی قدیمی)
-                symbol_clean = sym.split('/')[0].lower()
-                
-                has_ppo = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_ppo_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_ppo_best.zip")
-                has_sac = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_sac_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_sac_best.zip")
-                has_td3 = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_td3_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_td3_best.zip")
-                has_old_model = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_best.zip")
-                
-                has_model = has_ppo or has_old_model
-                
-                # منطق Rolling Window: ارزیابی طول عمر مدل‌ها بر مبنای آخرین زمان تغییر فایل PPO
-                model_age_days = -1
-                needs_retrain = False
-                retrain_reason = ""
-                
-                model_paths_to_check = [
-                    f"models/ppo_volume_bars_child_{symbol_clean}_ppo_final.zip",
-                    f"models/ppo_volume_bars_child_{symbol_clean}_ppo_best.zip",
-                    f"models/ppo_volume_bars_child_{symbol_clean}_final.zip",
-                    f"models/ppo_volume_bars_child_{symbol_clean}_best.zip"
-                ]
-                
-                trained_time = 0
-                for path in model_paths_to_check:
-                    if os.path.exists(path):
-                        mtime = os.path.getmtime(path)
-                        if mtime > trained_time:
-                            trained_time = mtime
-                            
-                if trained_time > 0:
-                    model_age_days = int((time.time() - trained_time) / (24 * 3600))
-                    # حد آستانه ۳۰ روز برای هشدار آموزش مجدد
-                    if model_age_days >= 30:
-                        needs_retrain = True
-                        retrain_reason = f"مدل {model_age_days} روز پیش آموزش دیده است. بر اساس منطق Rolling Window، آموزش مجدد توصیه می‌شود."
-
-                bot_data = {
-                    "symbol": sym,
-                    "status": "Flat" if not active else f"Active {active['side'].upper()} ({active['status'].upper()})",
-                    "raw_obi": 0.0,
-                    "market_buy_vol": 0.0,
-                    "market_sell_vol": 0.0,
-                    "dex_buy_vol": round(dex_buy, 2),
-                    "dex_sell_vol": round(dex_sell, 2),
-                    "spoof_type": "none",
-                    "mid_price": 0.0,
-                    "has_model": has_model,
-                    "has_ppo": has_ppo,
-                    "has_sac": has_sac,
-                    "has_td3": has_td3,
-                    "has_old_model": has_old_model,
-                    "model_age_days": model_age_days,
-                    "needs_retrain": needs_retrain,
-                    "retrain_reason": retrain_reason,
-                    "leverage": active["leverage"] if active else 15  # default leverage is 15 in YoYo
-                }
-
-                if lob:
-                    bot_data.update({
-                        "raw_obi": round(lob["raw_obi"], 2),
-                        "market_buy_vol": round(lob["market_buy_vol"], 1),
-                        "market_sell_vol": round(lob["market_sell_vol"], 1),
-                        "spoof_type": lob["spoof_type"],
-                        "mid_price": round(lob["mid_price"], 6)
-                    })
-                
-                active_bots.append(bot_data)
-
-        # مدل‌های موجود
-        available_models = scan_existing_models()
-
-        response_data = {
-            "active_settings": {
-                "EXCHANGE_ID": Config.EXCHANGE_ID,
-                "ROBORDER_LIVE": Config.ROBORDER_LIVE,
-                "QUOTE_DENOMINATION": Config.QUOTE_DENOMINATION,
-                "CUSTOM_WS_ENDPOINT": Config.CUSTOM_WS_ENDPOINT,
-                "HELIUS_WS_URL": Config.HELIUS_WS_URL,
-                "QUICKNODE_WS_URL": Config.QUICKNODE_WS_URL,
-                "LOB_DEPTH_LEVELS": Config.LOB_DEPTH_LEVELS,
-                "TRADE_WINDOW_SECONDS": Config.TRADE_WINDOW_SECONDS,
-                "SPOOF_THRESHOLD_PCT": Config.SPOOF_THRESHOLD_PCT,
-                "MOMENTUM_WINDOW_MS": Config.MOMENTUM_WINDOW_MS,
-                "SPREAD_THRESHOLD_BPS": Config.SPREAD_THRESHOLD_BPS,
-                "TAKE_PROFIT_BPS": Config.TAKE_PROFIT_BPS,
-                "STOP_LOSS_BPS": Config.STOP_LOSS_BPS,
-                "COOLDOWN_MS": Config.COOLDOWN_MS,
-                "MAX_CONCURRENT_POSITIONS": Config.MAX_CONCURRENT_POSITIONS,
-                "MAX_DRAWDOWN_LIMIT_USDT": Config.MAX_DRAWDOWN_LIMIT_USDT,
-                "INITIAL_BALANCE": Config.INITIAL_BALANCE,
-                "TRADE_CAPITAL_PCT": Config.TRADE_CAPITAL_PCT,
-                "USE_ONLY_PPO": Config.USE_ONLY_PPO,
-                "USE_YOYO_STRATEGY": Config.USE_YOYO_STRATEGY,
-                "YOYO_RISK_PCT": Config.YOYO_RISK_PCT,
-                "BYPASSED_FILTERS": Config.BYPASSED_FILTERS
-            },
-            "available_models": available_models,
-            "active_bots": active_bots,
-            "open_positions": open_positions,
-            "portfolio": portfolio,
-            "pings": global_pings
-        }
-        self.send_json(response_data)
+        global global_engine, global_executor, global_pings
+        api_handlers.handle_api_status(self, global_engine, global_executor, scan_existing_models, global_pings, Config)
 
     def handle_api_training_status(self):
-        """ارائه پیشرفت و جزئیات آموزش مدل‌ها"""
+        """ط§ط±ط§ط¦ظ‡ ظ¾غŒط´ط±ظپطھ ظˆ ط¬ط²ط¦غŒط§طھ ط¢ظ…ظˆط²ط´ ظ…ط¯ظ„â€Œظ‡ط§"""
         progress_data = []
         if os.path.exists("models"):
             try:
@@ -506,7 +449,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     if f.startswith("progress_") and f.endswith(".json"):
                         try:
                             with open(os.path.join("models", f), "r", encoding="utf-8") as pf:
-                                progress_data.append(json.load(pf))
+                                p_val = json.load(pf)
+                                # فقط مواردی که واقعاً در حال آموزش هستند یا تازه تکمیل شده‌اند را نمایش بده
+                                if p_val.get("status") not in ("stopped", "stopped (PPO)", "stopped (SAC)", "stopped (TD3)", "error"):
+                                    progress_data.append(p_val)
                         except Exception:
                             pass
             except Exception as e:
@@ -514,7 +460,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.send_json(progress_data)
 
     def handle_api_logs(self):
-        """ارسال ۱۰۰ خط نهایی فایل لاگ سراسری ربات به داشبورد"""
+        """ط§ط±ط³ط§ظ„ غ±غ°غ° ط®ط· ظ†ظ‡ط§غŒغŒ ظپط§غŒظ„ ظ„ط§ع¯ ط³ط±ط§ط³ط±غŒ ط±ط¨ط§طھ ط¨ظ‡ ط¯ط§ط´ط¨ظˆط±ط¯"""
         log_file = "robochild_x.log"
         logs = []
         if os.path.exists(log_file):
@@ -530,7 +476,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.send_json({"logs": logs})
 
     def handle_api_trade_history(self):
-        """ارسال تاریخچه معاملات ربات از فایل JSON تاریخچه محلی"""
+        """ط§ط±ط³ط§ظ„ طھط§ط±غŒط®ع†ظ‡ ظ…ط¹ط§ظ…ظ„ط§طھ ط±ط¨ط§طھ ط§ط² ظپط§غŒظ„ JSON طھط§ط±غŒط®ع†ظ‡ ظ…ط­ظ„غŒ"""
         history_file = Config.HISTORY_FILE_PATH
         history_data = {"signals": [], "stats": {"totalTrades": 0, "wins": 0, "losses": 0, "totalPnL": 0.0}}
         
@@ -564,7 +510,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.send_json({"error": str(e)}, 500)
 
     def handle_api_export_csv(self):
-        """خروجی CSV از سابقه تریدها برای دانلود کاربر"""
+        """ط®ط±ظˆط¬غŒ CSV ط§ط² ط³ط§ط¨ظ‚ظ‡ طھط±غŒط¯ظ‡ط§ ط¨ط±ط§غŒ ط¯ط§ظ†ظ„ظˆط¯ ع©ط§ط±ط¨ط±"""
         try:
             history_file = Config.HISTORY_FILE_PATH
             signals = []
@@ -604,342 +550,189 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             self.send_json({"error": str(e)}, 500)
 
+    def handle_api_analysis_status(self):
+        """ارائه پیشرفت و جزئیات آنالیز مدل‌ها"""
+        try:
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            symbol = params.get("symbol", [""])[0].upper().strip()
+            
+            if not symbol:
+                self.send_json({"error": "جفت ارز نامعتبر است"}, 400)
+                return
+                
+            symbol_clean = symbol.split('/')[0].lower()
+            status = active_analyses.get(symbol_clean, "idle")
+            logs = analysis_logs.get(symbol_clean, [])
+            
+            report_data = None
+            if status == "completed":
+                json_path = os.path.join("analysis", f"report_{symbol_clean}.json")
+                if os.path.exists(json_path):
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        report_data = json.load(f)
+            
+            self.send_json({
+                "symbol": symbol,
+                "status": status,
+                "logs": logs,
+                "report": report_data
+            })
+        except Exception as e:
+            self.send_json({"error": str(e)}, 500)
+
+    def handle_api_run_analyzer(self, body):
+        """تریگر شروع آنالیزور هوش عصبی در پس‌زمینه"""
+        global active_analyses, active_trainings
+        symbol = body.get("symbol", "").upper().strip()
+        if not symbol:
+            self.send_json({"success": False, "message": "جفت ارز نامعتبر است"}, 400)
+            return
+            
+        symbol_clean = symbol.split('/')[0].lower()
+        if symbol_clean in active_trainings:
+            self.send_json({"success": False, "message": "امکان اجرای آنالیزور در حین فرآیند آموزش مدل وجود ندارد. لطفاً تا پایان آموزش صبر کنید."}, 400)
+            return
+            
+        if active_analyses.get(symbol_clean) == "running":
+            self.send_json({"success": False, "message": f"آنالیزور برای {symbol} در حال حاضر فعال و در حال اجراست."}, 400)
+            return
+            
+        market_type = body.get("market_type", "futures").lower().strip()
+        days_back = int(body.get("days_back", 5))
+        
+        thread = threading.Thread(
+            target=background_analysis_orchestrator, 
+            args=(symbol, market_type, days_back), 
+            daemon=True
+        )
+        thread.start()
+        
+        self.send_json({"success": True, "message": f"پردازش آنالیزور فوق پیشرفته برای {symbol} استارت خورد."})
+
+    def handle_api_screener(self):
+        """اجرا یا بارگذاری نتایج اسکنر آلت‌کوین‌ها"""
+        try:
+            if not Config.SCREENER_ENABLED:
+                self.send_json({
+                    "timestamp": int(time.time() * 1000),
+                    "exchange_id": Config.EXCHANGE_ID,
+                    "altcoins": [],
+                    "message": "اسکنر آلت‌کوین‌ها غیرفعال است."
+                })
+                return
+
+            from src.core.screener import fetch_top_altcoins_sync
+            # دریافت ۱۵ آلت‌کوین برتر از صرافی
+            top_coins = fetch_top_altcoins_sync(Config.EXCHANGE_ID, limit=15)
+            
+            # افزودن اطلاعات وضعیت به هر کوین (داشتن مدل، در حال آموزش بودن، فعال بودن در ربات)
+            enriched_coins = []
+            for coin in top_coins:
+                sym = coin["symbol"]
+                symbol_clean = coin["base"].lower()
+                
+                # بررسی وجود مدل
+                has_ppo = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_ppo_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_ppo_best.zip")
+                has_old_model = os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_final.zip") or os.path.exists(f"models/ppo_volume_bars_child_{symbol_clean}_best.zip")
+                has_model = has_ppo or has_old_model
+                
+                is_active = sym in Config.SYMBOLS
+                is_training = symbol_clean in active_trainings
+                
+                # پیدا کردن فایل پیشرفت آموزش در صورت وجود
+                progress = None
+                progress_file = os.path.join("models", f"progress_ppo_volume_bars_child_{symbol_clean}.json")
+                if os.path.exists(progress_file):
+                    try:
+                        with open(progress_file, "r", encoding="utf-8") as pf:
+                            progress = json.load(pf)
+                    except Exception:
+                        pass
+                
+                # تشخیص وضعیت Ghost Training:
+                if progress and progress.get("status") == "training" and not is_training:
+                    logger.warning(f"[Screener] Ghost training detected for {symbol_clean} - resetting status to error")
+                    log_event(f"⚠️ آموزش {symbol_clean} بدون ثبت خطا خاتمه یافت (احتمالاً کمبود RAM). وضعیت reset شد.")
+                    progress["status"] = "error"
+                    progress["message"] = "آموزش به دلیل خطا یا کمبود حافظه متوقف شد. لطفاً مجدداً تلاش کنید."
+                    try:
+                        with open(progress_file, "w", encoding="utf-8") as pf:
+                            json.dump(progress, pf, ensure_ascii=False)
+                    except Exception:
+                        pass
+                
+                enriched_coins.append({
+                    **coin,
+                    "has_model": has_model,
+                    "is_active": is_active,
+                    "is_training": is_training,
+                    "progress": progress
+                })
+            
+            # ذخیره گزارش در دیسک برای استفاده‌های بعدی یا نمایش در داشبورد
+            report_data = {
+                "timestamp": int(time.time() * 1000),
+                "exchange_id": Config.EXCHANGE_ID,
+                "altcoins": enriched_coins
+            }
+            os.makedirs("analysis", exist_ok=True)
+            filepath_scr = os.path.join("analysis", "screener_report.json")
+            try:
+                with open(filepath_scr, "w", encoding="utf-8") as f_scr:
+                    json.dump(report_data, f_scr, indent=4, ensure_ascii=False)
+            except Exception as e:
+                logger.error(f"Error saving screener report: {e}")
+                
+            self.send_json(report_data)
+        except Exception as e:
+            logger.error(f"Error in handle_api_screener: {e}")
+            self.send_json({"error": str(e)}, 500)
+
     def handle_api_add_symbol(self, body):
         """ثبت ارز جدید: شروع فرآیند لایو تریدینگ یا ایجاد ترد آموزش هوش مصنوعی"""
-        global active_trainings
-        symbol = body.get("symbol", "").upper().strip()
-        symbol = re.sub(r'[^a-zA-Z0-9/:-]', '', symbol)
-        if not symbol or "/" not in symbol:
-            self.send_json({"success": False, "message": "فرمت جفت ارز نامعتبر است (مثال: POPCAT/USDT:USDT)"}, 400)
-            return
-
-        symbol_clean = symbol.split('/')[0].lower()
-        
-        resume = bool(body.get("resume", False))
-        learning_rate = body.get("learning_rate", "linear_0.0003")
-
-        # ۱. اگر استراتژی YoYoStrategy فعال باشد و درخواست ادامه یادگیری مدل نباشد، بدون نیاز به مدل هوش مصنوعی بلافاصله ارز را اضافه می‌کنیم
-        if Config.USE_YOYO_STRATEGY and not resume:
-            if symbol in Config.SYMBOLS:
-                self.send_json({"success": True, "message": f"جفت ارز {symbol} از قبل فعال و در حال ترید است."})
-                return
-            
-            Config.SYMBOLS.append(symbol)
-            save_env_values({"SYMBOLS": ",".join(Config.SYMBOLS)})
-            log_event(f"➕ جفت ارز {symbol} برای استراتژی YoYo اضافه شد و در فایل .env ذخیره گردید.")
-            
-            if global_engine:
-                if symbol not in global_engine.symbols:
-                    global_engine.symbols.append(symbol)
-                if hasattr(global_engine, "yoyo") and global_engine.yoyo:
-                    if symbol not in global_engine.yoyo.symbols:
-                        global_engine.yoyo.symbols.append(symbol)
-                        global_engine.yoyo.candles_1m[symbol] = []
-                        global_engine.yoyo.candles_3m[symbol] = []
-                        global_engine.yoyo.candles_15m[symbol] = []
-                        global_engine.yoyo.current_1m[symbol] = None
-                        global_engine.yoyo.current_3m[symbol] = None
-                        global_engine.yoyo.current_15m[symbol] = None
-                        global_engine.yoyo.last_order_placed_time[symbol] = 0.0
-                    
-                    # مقداردهی به شمع‌های تاریخی به صورت پس‌زمینه (thread-safe)
-                    import asyncio as _asyncio
-                    exch = global_executor.exchange if (global_executor and hasattr(global_executor, 'exchange')) else None
-                    if global_loop and exch:
-                        try:
-                            _asyncio.run_coroutine_threadsafe(global_engine.yoyo.initialize_candles(exch), global_loop)
-                        except Exception as e:
-                            log_event(f"⚠️ خطای غیرمنتظره در مقداردهی شمع‌های YoYo: {e}")
-                            global_engine.yoyo._generate_mock_historical_candles(symbol)
-                    else:
-                        global_engine.yoyo._generate_mock_historical_candles(symbol)
-                
-                if symbol not in global_engine.recent_dex_trades:
-                    from collections import deque
-                    global_engine.recent_dex_trades[symbol] = deque()
-
-            self.send_json({"success": True, "message": f"جفت ارز {symbol} با موفقیت به استراتژی YoYo اضافه شد و شمع‌های تاریخی آن آماده‌سازی گردید."})
-            return
-
-        if symbol_clean in active_trainings:
-            self.send_json({
-                "success": False,
-                "message": f"فرآیند آموزش هوش مصنوعی برای {symbol} در پس‌زمینه در جریان است. لطفاً منتظر بمانید."
-            }, 400)
-            return
-
-        model_file = f"models/ppo_volume_bars_child_{symbol_clean}_ppo_best.zip"
-        if not os.path.exists(model_file):
-            model_file = f"models/ppo_volume_bars_child_{symbol_clean}_ppo_final.zip"
-        # Fallback to single old models if ensemble models do not exist
-        if not os.path.exists(model_file):
-            model_file = f"models/ppo_volume_bars_child_{symbol_clean}_best.zip"
-        if not os.path.exists(model_file):
-            model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
-
-        # ۱. در صورت وجود مدل آموزش‌دیده و عدم درخواست از سرگیری مجدد، فوراً ارز را در سیستم زنده ثبت و بازنشانی می‌کنیم
-        if os.path.exists(model_file) and not resume:
-            if symbol in Config.SYMBOLS:
-                self.send_json({"success": True, "message": f"جفت ارز {symbol} از قبل فعال و در حال ترید است."})
-            else:
-                Config.SYMBOLS.append(symbol)
-                # همگام‌سازی با فایل .env
-                save_env_values({"SYMBOLS": ",".join(Config.SYMBOLS)})
-                log_event(f"➕ جفت ارز {symbol} اضافه شد و در فایل .env ذخیره گردید.")
-                
-                # بروزرسانی موتور در صورت اتصال
-                if global_engine:
-                    if symbol not in global_engine.symbols:
-                        global_engine.symbols.append(symbol)
-                    if hasattr(global_engine, "yoyo") and global_engine.yoyo:
-                        if symbol not in global_engine.yoyo.symbols:
-                            global_engine.yoyo.symbols.append(symbol)
-                            global_engine.yoyo.candles_1m[symbol] = []
-                            global_engine.yoyo.candles_3m[symbol] = []
-                            global_engine.yoyo.candles_15m[symbol] = []
-                            global_engine.yoyo.current_1m[symbol] = None
-                            global_engine.yoyo.current_3m[symbol] = None
-                            global_engine.yoyo.current_15m[symbol] = None
-                            global_engine.yoyo.last_order_placed_time[symbol] = 0.0
-                            
-                            # مقداردهی به شمع‌های تاریخی به صورت پس‌زمینه (thread-safe)
-                            import asyncio as _asyncio
-                            exch = global_executor.exchange if (global_executor and hasattr(global_executor, 'exchange')) else None
-                            if global_loop and exch:
-                                try:
-                                    _asyncio.run_coroutine_threadsafe(global_engine.yoyo.initialize_candles(exch), global_loop)
-                                except Exception as e:
-                                    log_event(f"⚠️ خطای غیرمنتظره در مقداردهی شمع‌های YoYo: {e}")
-                                    global_engine.yoyo._generate_mock_historical_candles(symbol)
-                            else:
-                                global_engine.yoyo._generate_mock_historical_candles(symbol)
-                                
-                    if symbol not in global_engine.recent_dex_trades:
-                        from collections import deque
-                        global_engine.recent_dex_trades[symbol] = deque()
-                        
-                self.send_json({"success": True, "message": f"مدل هوش مصنوعی یافت شد! جفت ارز {symbol} به سیستم ترید زنده متصل شد."})
-        
-        # ۲. در صورت نبود مدل یا درخواست از سرگیری مجدد آموزش، فرآیند یادگیری را در پس‌زمینه استارت می‌زنیم
-        else:
-            steps = int(body.get("steps", 200000))
-            is_meme = symbol_clean in ["bome", "pepe", "doge", "shib", "wif", "bonk", "floki", "popcat"]
-            timeframe = "1m" if is_meme else "5m"
-
-            if resume:
-                log_event(f"🔄 درخواست از سرگیری (Fine-tune) مدل {symbol} با {steps:,} گام جدید و نرخ یادگیری {learning_rate}...")
-            else:
-                log_event(f"🔍 مدل شبکه عصبی برای {symbol} یافت نشد یا درخواست ساخت مجدد صادر شده است. تریگر آموزش جدید در پس‌زمینه...")
-            
-            thread = threading.Thread(
-                target=background_train_orchestrator, 
-                args=(symbol, steps), 
-                kwargs={"resume": resume, "learning_rate": learning_rate},
-                daemon=True
-            )
-            thread.start()
-
-            msg = f"فرآیند آموزش شبکه عصبی با بودجه {steps:,} گام استارت خورد."
-            if resume:
-                msg = f"فرآیند از سرگیری و ارتقای مدل {symbol} با {steps:,} گام جدید استارت خورد."
-
-            self.send_json({
-                "success": True,
-                "message": msg
-            })
+        global global_engine, global_executor, global_loop, active_trainings, active_analyses
+        api_handlers.handle_api_add_symbol(
+            self, body, global_engine, global_executor, global_loop,
+            active_trainings, active_analyses, auto_activate_symbol, log_event,
+            background_train_orchestrator, Config, threading
+        )
 
     def handle_api_remove_symbol(self, body):
         """حذف ارز: متوقف کردن آموزش هوش مصنوعی یا حذف جفت ارز از لیست ترید فعال"""
-        global active_trainings, training_stops
-        symbol = body.get("symbol", "").upper().strip()
-        symbol = re.sub(r'[^a-zA-Z0-9/:-]', '', symbol)
-        delete_model = bool(body.get("delete_model", False))
-        
-        symbol_clean = symbol.split('/')[0].lower()
-        deleted_files = []
-
-        if delete_model:
-            # حذف تمامی فایل‌های مربوط به مدل‌های Ensemble (PPO, SAC, TD3)
-            files_to_delete = []
-            for algo in ["ppo", "sac", "td3"]:
-                files_to_delete.append(f"models/ppo_volume_bars_child_{symbol_clean}_{algo}_final.zip")
-                files_to_delete.append(f"models/ppo_volume_bars_child_{symbol_clean}_{algo}_best.zip")
-                files_to_delete.append(f"models/ppo_volume_bars_child_{symbol_clean}_{algo}_vec_normalize.pkl")
-            # برای سازگاری عقب‌رو، فایل‌های قدیمی را نیز حذف می‌کنیم
-            files_to_delete.extend([
-                f"models/ppo_volume_bars_child_{symbol_clean}_final.zip",
-                f"models/ppo_volume_bars_child_{symbol_clean}_best.zip",
-                f"models/ppo_volume_bars_child_{symbol_clean}_vec_normalize.pkl",
-                f"models/progress_ppo_volume_bars_child_{symbol_clean}.json"
-            ])
-            
-            for file_path in files_to_delete:
-                if os.path.exists(file_path):
-                    try:
-                        os.remove(file_path)
-                        deleted_files.append(os.path.basename(file_path))
-                    except Exception as e:
-                        log_event(f"⚠️ خطا در حذف فایل {file_path}: {e}")
-
-        # ۱. اگر در وضعیت آموزش فعال بود، ترد را لغو می‌کنیم
-        if symbol_clean in active_trainings:
-            training_stops[symbol_clean] = True
-            log_event(f"🛑 دستور لغو آموزش هوش مصنوعی برای {symbol} ({symbol_clean}) صادر شد.")
-            msg = f"آموزش شبکه عصبی برای {symbol} متوقف شد."
-            if deleted_files:
-                msg += f" فایل‌های مدل نیز پاک‌سازی شدند: {', '.join(deleted_files)}"
-            self.send_json({"success": True, "message": msg})
-            return
-
-        # ۲. پیدا کردن جفت‌ارز هدف به صورت تمیز شده و مقاوم به پسوند صرافی
-        target_symbol = None
-        clean_symbol = symbol.split(":")[0].upper().strip()
-        for sym in Config.SYMBOLS:
-            if sym.upper().strip() == symbol or sym.split(":")[0].upper().strip() == clean_symbol:
-                target_symbol = sym
-                break
-
-        if target_symbol:
-            Config.SYMBOLS.remove(target_symbol)
-            success_save = save_env_values({"SYMBOLS": ",".join(Config.SYMBOLS)})
-            if success_save:
-                log_event(f"➖ جفت ارز {target_symbol} از لیست ترید فعال حذف و تنظیمات .env بروز شد.")
-            else:
-                log_event(f"⚠️ جفت ارز {target_symbol} در حافظه موقت حذف شد ولی نوشتن در .env خطا داشت.")
-            
-            # پاک‌سازی کامل از حافظه موقت موتورهای معاملاتی
-            if global_engine:
-                if target_symbol in global_engine.symbols:
-                    global_engine.symbols.remove(target_symbol)
-                if hasattr(global_engine, "yoyo") and global_engine.yoyo:
-                    if target_symbol in global_engine.yoyo.symbols:
-                        global_engine.yoyo.symbols.remove(target_symbol)
-                    global_engine.yoyo.candles_1m.pop(target_symbol, None)
-                    global_engine.yoyo.candles_3m.pop(target_symbol, None)
-                    global_engine.yoyo.candles_15m.pop(target_symbol, None)
-                    global_engine.yoyo.current_1m.pop(target_symbol, None)
-                    global_engine.yoyo.current_3m.pop(target_symbol, None)
-                    global_engine.yoyo.current_15m.pop(target_symbol, None)
-                    global_engine.yoyo.active_trades.pop(target_symbol, None)
-                    global_engine.yoyo.last_order_placed_time.pop(target_symbol, None)
-            
-            # خروج اضطراری در صرافی در صورت پوزیشن باز (thread-safe)
-            if global_executor and target_symbol in global_executor.open_positions:
-                try:
-                    import asyncio as _asyncio
-                    if global_loop:
-                        _asyncio.run_coroutine_threadsafe(
-                            global_executor.execute_exit(target_symbol, 0.0, "FORCE_DASHBOARD_REMOVE"),
-                            global_loop
-                        )
-                    log_event(f"🚪 پوزیشن باز جفت ارز {target_symbol} با موفقیت در صرافی بسته شد.")
-                except Exception as e:
-                    log_event(f"⚠️ خطا در بستن پوزیشن {target_symbol}: {e}")
-
-            msg = f"جفت ارز {target_symbol} با موفقیت از سیستم ترید زنده حذف شد."
-            if deleted_files:
-                msg += f" فایل‌های شبکه عصبی نیز حذف شدند: {', '.join(deleted_files)}"
-            self.send_json({"success": True, "message": msg})
-        else:
-            self.send_json({"success": False, "message": "ارز مدنظر در لیست فعال یافت نشد."}, 404)
+        global global_engine, global_executor, global_loop, active_trainings, training_stops
+        api_handlers.handle_api_remove_symbol(
+            self, body, global_engine, global_executor, global_loop,
+            active_trainings, training_stops, log_event, Config
+        )
 
     def handle_api_close_position(self, body):
         """بستن فوری پوزیشن یک ارز بدون حذف آن از لیست نمادها"""
         global global_engine, global_executor, global_loop
-        symbol = body.get("symbol", "").upper().strip()
-        symbol = re.sub(r'[^a-zA-Z0-9/:-]', '', symbol)
-        if not symbol:
-            self.send_json({"success": False, "message": "ارز نامشخص است"}, 400)
-            return
-
-        # پیدا کردن جفت‌ارز هدف به صورت تمیز شده و مقاوم به پسوند صرافی
-        target_symbol = None
-        clean_symbol = symbol.split(":")[0].upper().strip()
-        for sym in Config.SYMBOLS:
-            if sym.upper().strip() == symbol or sym.split(":")[0].upper().strip() == clean_symbol:
-                target_symbol = sym
-                break
-
-        if not target_symbol:
-            self.send_json({"success": False, "message": "ارز مدنظر در لیست فعال یافت نشد."}, 404)
-            return
-
-        log_event(f"🚪 درخواست بستن فوری پوزیشن برای {target_symbol} دریافت شد.")
-
-        closed_locally = False
-        import asyncio as _asyncio
-
-        # ۱. تلاش برای بستن از طریق استراتژی YoYo/PPO
-        if global_engine and hasattr(global_engine, "yoyo") and global_engine.yoyo:
-            yoyo = global_engine.yoyo
-            if target_symbol in yoyo.active_trades:
-                current_price = 0.0
-                if target_symbol in global_engine.latest_lob_results:
-                    current_price = global_engine.latest_lob_results[target_symbol]["mid_price"]
-                else:
-                    trade = yoyo.active_trades[target_symbol]
-                    current_price = trade.get("entry_price", 0.0)
-
-                now_ms = int(time.time() * 1000)
-                try:
-                    if hasattr(yoyo, "force_close_position"):
-                        closed_locally = yoyo.force_close_position(target_symbol, current_price, now_ms)
-                    else:
-                        trade = yoyo.active_trades[target_symbol]
-                        yoyo._close_ppo_position(target_symbol, trade, current_price, 0.0, "FORCE_DASHBOARD_CLOSE", now_ms)
-                        closed_locally = True
-                except Exception as e:
-                    log_event(f"⚠️ خطا در بستن پوزیشن استراتژی: {e}")
-
-        # ۲. اگر در استراتژی نبود ولی در پوزیشن‌های باز مجری بود، مستقیماً از صرافی بسته می‌شود
-        if not closed_locally and global_executor and target_symbol in global_executor.open_positions:
-            try:
-                pos = global_executor.open_positions[target_symbol]
-                pos_pnl = 0.0
-                pnl_usdt = 0.0
-                if global_engine and target_symbol in global_engine.latest_lob_results:
-                    mid = global_engine.latest_lob_results[target_symbol]["mid_price"]
-                    entry = pos["entry_price"]
-                    if pos["side"] == "long":
-                        pos_pnl = ((mid - entry) / entry) * 100.0 * pos["leverage"]
-                    else:
-                        pos_pnl = ((entry - mid) / entry) * 100.0 * pos["leverage"]
-                    pnl_usdt = pos.get("amount", 0.0) * (pos_pnl / 100.0)
-                
-                if global_loop:
-                    _asyncio.run_coroutine_threadsafe(
-                        global_executor.execute_exit(target_symbol, pnl_usdt, "FORCE_DASHBOARD_CLOSE"),
-                        global_loop
-                    )
-                closed_locally = True
-                log_event(f"🚪 پوزیشن باز {target_symbol} مستقیماً در صرافی بسته شد.")
-            except Exception as e:
-                log_event(f"⚠️ خطا در بستن مستقیم پوزیشن صرافی {target_symbol}: {e}")
-
-        if closed_locally:
-            self.send_json({"success": True, "message": f"پوزیشن باز جفت ارز {target_symbol} با موفقیت در صرافی بسته شد."})
-        else:
-            self.send_json({"success": False, "message": "هیچ پوزیشن باز یا معامله فعالی برای این جفت ارز یافت نشد."}, 400)
+        api_handlers.handle_api_close_position(
+            self, body, global_engine, global_executor, global_loop, log_event, Config
+        )
 
     def handle_api_set_bot_settings(self, body):
-        """تنظیمات اختصاصی حد سود/ضرر ریاضی و اهرم برای جفت ارز خاص"""
+        """طھظ†ط¸غŒظ…ط§طھ ط§ط®طھطµط§طµغŒ ط­ط¯ ط³ظˆط¯/ط¶ط±ط± ط±غŒط§ط¶غŒ ظˆ ط§ظ‡ط±ظ… ط¨ط±ط§غŒ ط¬ظپطھ ط§ط±ط² ط®ط§طµ"""
         symbol = body.get("symbol", "").upper().strip()
         symbol = re.sub(r'[^a-zA-Z0-9/:-]', '', symbol)
         if not symbol:
-            self.send_json({"success": False, "message": "ارز نامشخص است"}, 400)
+            self.send_json({"success": False, "message": "ط§ط±ط² ظ†ط§ظ…ط´ط®طµ ط§ط³طھ"}, 400)
             return
 
-        # در پایتون ROBORDER-X، مقادیر TP و SL به صورت سراسری در .env ثبت شده است.
-        # اما برای اعمال تعاملی، می‌توانیم کل تنظیمات عددی .env را از Settings بروزرسانی کنیم.
-        self.send_json({"success": True, "message": f"تنظیمات با موفقیت برای کل پورتفولیو اعمال گردید."})
+        # ط¯ط± ظ¾ط§غŒطھظˆظ† ROBORDER-XطŒ ظ…ظ‚ط§ط¯غŒط± TP ظˆ SL ط¨ظ‡ طµظˆط±طھ ط³ط±ط§ط³ط±غŒ ط¯ط± .env ط«ط¨طھ ط´ط¯ظ‡ ط§ط³طھ.
+        # ط§ظ…ط§ ط¨ط±ط§غŒ ط§ط¹ظ…ط§ظ„ طھط¹ط§ظ…ظ„غŒطŒ ظ…غŒâ€Œطھظˆط§ظ†غŒظ… ع©ظ„ طھظ†ط¸غŒظ…ط§طھ ط¹ط¯ط¯غŒ .env ط±ط§ ط§ط² Settings ط¨ط±ظˆط²ط±ط³ط§ظ†غŒ ع©ظ†غŒظ….
+        self.send_json({"success": True, "message": f"طھظ†ط¸غŒظ…ط§طھ ط¨ط§ ظ…ظˆظپظ‚غŒطھ ط¨ط±ط§غŒ ع©ظ„ ظ¾ظˆط±طھظپظˆظ„غŒظˆ ط§ط¹ظ…ط§ظ„ ع¯ط±ط¯غŒط¯."})
 
     def handle_api_liquidate_all(self):
-        """دستور نهایی انجماد سراسری و نقدینگی اضطراری تمام موقعیت‌های باز در صرافی"""
-        log_event("🚨🚨🚨 خروج اضطراری (GLOBAL EMERGENCY LIQUIDATION) توسط کاربر فعال شد! 🚨🚨🚨")
+        """ط¯ط³طھظˆط± ظ†ظ‡ط§غŒغŒ ط§ظ†ط¬ظ…ط§ط¯ ط³ط±ط§ط³ط±غŒ ظˆ ظ†ظ‚ط¯غŒظ†ع¯غŒ ط§ط¶ط·ط±ط§ط±غŒ طھظ…ط§ظ… ظ…ظˆظ‚ط¹غŒطھâ€Œظ‡ط§غŒ ط¨ط§ط² ط¯ط± طµط±ط§ظپغŒ"""
+        log_event("ًںڑ¨ًںڑ¨ًںڑ¨ ط®ط±ظˆط¬ ط§ط¶ط·ط±ط§ط±غŒ (GLOBAL EMERGENCY LIQUIDATION) طھظˆط³ط· ع©ط§ط±ط¨ط± ظپط¹ط§ظ„ ط´ط¯! ًںڑ¨ًںڑ¨ًںڑ¨")
         
         halted_symbols = []
         if global_executor:
-            # استخراج پوزیشن‌های باز جهت نقدینگی بلادرنگ (thread-safe)
+            # ط§ط³طھط®ط±ط§ط¬ ظ¾ظˆط²غŒط´ظ†â€Œظ‡ط§غŒ ط¨ط§ط² ط¬ظ‡طھ ظ†ظ‚ط¯غŒظ†ع¯غŒ ط¨ظ„ط§ط¯ط±ظ†ع¯ (thread-safe)
             open_syms = list(global_executor.open_positions.keys())
             import asyncio as _asyncio
 
@@ -954,7 +747,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 except Exception as e:
                     log_event(f"Error force liquidating {sym}: {e}")
 
-        # تنظیم سقف پوزیشن روی صفر جهت جلوگیری از تریدهای بعدی
+        # طھظ†ط¸غŒظ… ط³ظ‚ظپ ظ¾ظˆط²غŒط´ظ† ط±ظˆغŒ طµظپط± ط¬ظ‡طھ ط¬ظ„ظˆع¯غŒط±غŒ ط§ط² طھط±غŒط¯ظ‡ط§غŒ ط¨ط¹ط¯غŒ
         save_env_values({
             "ROBORDER_LIVE": "false",
             "MAX_CONCURRENT_POSITIONS": "0"
@@ -962,13 +755,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         self.send_json({
             "success": True, 
-            "message": f"دستور خروج اضطراری صادر شد! پوزیشن‌های {', '.join(halted_symbols)} با موفقیت نقد شدند و ربات روی حالت Paper متوقف گردید."
+            "message": f"ط¯ط³طھظˆط± ط®ط±ظˆط¬ ط§ط¶ط·ط±ط§ط±غŒ طµط§ط¯ط± ط´ط¯! ظ¾ظˆط²غŒط´ظ†â€Œظ‡ط§غŒ {', '.join(halted_symbols)} ط¨ط§ ظ…ظˆظپظ‚غŒطھ ظ†ظ‚ط¯ ط´ط¯ظ†ط¯ ظˆ ط±ط¨ط§طھ ط±ظˆغŒ ط­ط§ظ„طھ Paper ظ…طھظˆظ‚ظپ ع¯ط±ط¯غŒط¯."
         })
 
     def handle_api_shutdown(self):
-        """خاموش کردن کامل پروسه پایتون ربات در سرور لینوکس"""
-        log_event("🛑 دستور خاموش کردن کامل ربات از طرف داشبورد تعاملی صادر شد. فرآیند پایتون سرور متوقف می‌گردد...")
-        self.send_json({"success": True, "message": "فرآیند ربات با موفقیت خاموش شد. اتصال شما به سرور قطع می‌گردد."})
+        """ط®ط§ظ…ظˆط´ ع©ط±ط¯ظ† ع©ط§ظ…ظ„ ظ¾ط±ظˆط³ظ‡ ظ¾ط§غŒطھظˆظ† ط±ط¨ط§طھ ط¯ط± ط³ط±ظˆط± ظ„غŒظ†ظˆع©ط³"""
+        log_event("ًں›‘ ط¯ط³طھظˆط± ط®ط§ظ…ظˆط´ ع©ط±ط¯ظ† ع©ط§ظ…ظ„ ط±ط¨ط§طھ ط§ط² ط·ط±ظپ ط¯ط§ط´ط¨ظˆط±ط¯ طھط¹ط§ظ…ظ„غŒ طµط§ط¯ط± ط´ط¯. ظپط±ط¢غŒظ†ط¯ ظ¾ط§غŒطھظˆظ† ط³ط±ظˆط± ظ…طھظˆظ‚ظپ ظ…غŒâ€Œع¯ط±ط¯ط¯...")
+        self.send_json({"success": True, "message": "ظپط±ط¢غŒظ†ط¯ ط±ط¨ط§طھ ط¨ط§ ظ…ظˆظپظ‚غŒطھ ط®ط§ظ…ظˆط´ ط´ط¯. ط§طھطµط§ظ„ ط´ظ…ط§ ط¨ظ‡ ط³ط±ظˆط± ظ‚ط·ط¹ ظ…غŒâ€Œع¯ط±ط¯ط¯."})
         
         def kill_process():
             time.sleep(1.0)
@@ -977,143 +770,75 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         threading.Thread(target=kill_process, daemon=True).start()
 
     def handle_api_reset_balance(self):
-        """ریست کردن موجودی کل حساب به موجودی اولیه، پاک کردن تاریخچه معاملات و بازنشانی دروداون روزانه"""
+        """ط±غŒط³طھ ع©ط±ط¯ظ† ظ…ظˆط¬ظˆط¯غŒ ع©ظ„ ط­ط³ط§ط¨ ط¨ظ‡ ظ…ظˆط¬ظˆط¯غŒ ط§ظˆظ„غŒظ‡طŒ ظ¾ط§ع© ع©ط±ط¯ظ† طھط§ط±غŒط®ع†ظ‡ ظ…ط¹ط§ظ…ظ„ط§طھ ظˆ ط¨ط§ط²ظ†ط´ط§ظ†غŒ ط¯ط±ظˆط¯ط§ظˆظ† ط±ظˆط²ط§ظ†ظ‡"""
         global global_engine, global_executor
-        log_event(f"🔄 بازنشانی موجودی کل حساب به موجودی اولیه (${Config.INITIAL_BALANCE:.2f})")
+        log_event(f"ًں”„ ط¨ط§ط²ظ†ط´ط§ظ†غŒ ظ…ظˆط¬ظˆط¯غŒ ع©ظ„ ط­ط³ط§ط¨ ط¨ظ‡ ظ…ظˆط¬ظˆط¯غŒ ط§ظˆظ„غŒظ‡ (${Config.INITIAL_BALANCE:.2f})")
         Config.CURRENT_BALANCE = Config.INITIAL_BALANCE
         success = save_env_values({"CURRENT_BALANCE": f"{Config.INITIAL_BALANCE:.4f}"})
         
-        # پاک کردن کامل تاریخچه معاملات
+        # ظ¾ط§ع© ع©ط±ط¯ظ† ع©ط§ظ…ظ„ طھط§ط±غŒط®ع†ظ‡ ظ…ط¹ط§ظ…ظ„ط§طھ
         if global_engine:
             if hasattr(global_engine, "yoyo"):
                 global_engine.yoyo.history = {"signals": [], "stats": {"totalTrades": 0, "wins": 0, "losses": 0, "totalPnL": 0.0}}
                 global_engine.yoyo.save_history()
-            log_event("🗑️ تاریخچه معاملات در هسته استراتژی با موفقیت پاک شد.")
+            log_event("ًں—‘ï¸ڈ طھط§ط±غŒط®ع†ظ‡ ظ…ط¹ط§ظ…ظ„ط§طھ ط¯ط± ظ‡ط³طھظ‡ ط§ط³طھط±ط§طھعکغŒ ط¨ط§ ظ…ظˆظپظ‚غŒطھ ظ¾ط§ع© ط´ط¯.")
         else:
             try:
                 history_file = Config.HISTORY_FILE_PATH
                 empty_history = {"signals": [], "stats": {"totalTrades": 0, "wins": 0, "losses": 0, "totalPnL": 0.0}}
                 with open(history_file, "w", encoding="utf-8") as f:
                     json.dump(empty_history, f, indent=2, ensure_ascii=False)
-                log_event("🗑️ فایل تاریخچه معاملات مستقیماً پاکسازی شد.")
+                log_event("ًں—‘ï¸ڈ ظپط§غŒظ„ طھط§ط±غŒط®ع†ظ‡ ظ…ط¹ط§ظ…ظ„ط§طھ ظ…ط³طھظ‚غŒظ…ط§ظ‹ ظ¾ط§ع©ط³ط§ط²غŒ ط´ط¯.")
             except Exception as e:
                 logger.error(f"Failed to clear history file during balance reset: {e}")
 
-        # بازنشانی میزان دروداون روزانه (Daily Drawdown) و سود/زیان در ماژول مدیریت ریسک
+        # ط¨ط§ط²ظ†ط´ط§ظ†غŒ ظ…غŒط²ط§ظ† ط¯ط±ظˆط¯ط§ظˆظ† ط±ظˆط²ط§ظ†ظ‡ (Daily Drawdown) ظˆ ط³ظˆط¯/ط²غŒط§ظ† ط¯ط± ظ…ط§عکظˆظ„ ظ…ط¯غŒط±غŒطھ ط±غŒط³ع©
         if global_executor:
             global_executor.current_drawdown = 0.0
             global_executor.daily_pnl = 0.0
-            log_event("🔄 میزان دروداون روزانه (Daily Drawdown) و سود/زیان روزانه نیز با موفقیت به صفر بازنشانی شدند.")
+            log_event("ًں”„ ظ…غŒط²ط§ظ† ط¯ط±ظˆط¯ط§ظˆظ† ط±ظˆط²ط§ظ†ظ‡ (Daily Drawdown) ظˆ ط³ظˆط¯/ط²غŒط§ظ† ط±ظˆط²ط§ظ†ظ‡ ظ†غŒط² ط¨ط§ ظ…ظˆظپظ‚غŒطھ ط¨ظ‡ طµظپط± ط¨ط§ط²ظ†ط´ط§ظ†غŒ ط´ط¯ظ†ط¯.")
 
         if success:
-            self.send_json({"success": True, "message": f"موجودی حساب با موفقیت به ${Config.INITIAL_BALANCE:.2f} ریست شد، کل تاریخچه معاملات پاک شد و دروداون نیز بازنشانی گردید."})
+            self.send_json({"success": True, "message": f"ظ…ظˆط¬ظˆط¯غŒ ط­ط³ط§ط¨ ط¨ط§ ظ…ظˆظپظ‚غŒطھ ط¨ظ‡ ${Config.INITIAL_BALANCE:.2f} ط±غŒط³طھ ط´ط¯طŒ ع©ظ„ طھط§ط±غŒط®ع†ظ‡ ظ…ط¹ط§ظ…ظ„ط§طھ ظ¾ط§ع© ط´ط¯ ظˆ ط¯ط±ظˆط¯ط§ظˆظ† ظ†غŒط² ط¨ط§ط²ظ†ط´ط§ظ†غŒ ع¯ط±ط¯غŒط¯."})
         else:
-            self.send_json({"success": False, "message": "خطا در بروزرسانی موجودی در .env"}, 500)
+            self.send_json({"success": False, "message": "ط®ط·ط§ ط¯ط± ط¨ط±ظˆط²ط±ط³ط§ظ†غŒ ظ…ظˆط¬ظˆط¯غŒ ط¯ط± .env"}, 500)
 
     def handle_api_set_settings(self, body: dict):
         """ذخیره تنظیمات عددی جدید ارسال شده از مرورگر مستقیماً درون فایل متغیرهای محیطی .env و اعمال آنی به موتورها"""
-        global global_engine, global_executor
-        updates = {}
-        valid_keys = [
-            "ROBORDER_LIVE", "EXCHANGE_ID", "QUOTE_DENOMINATION", "CUSTOM_WS_ENDPOINT",
-            "HELIUS_WS_URL", "QUICKNODE_WS_URL", "LOB_DEPTH_LEVELS", "TRADE_WINDOW_SECONDS",
-            "SPOOF_THRESHOLD_PCT", "MOMENTUM_WINDOW_MS", "SPREAD_THRESHOLD_BPS",
-            "TAKE_PROFIT_BPS", "STOP_LOSS_BPS", "COOLDOWN_MS", "MAX_CONCURRENT_POSITIONS",
-            "MAX_DRAWDOWN_LIMIT_USDT", "INITIAL_BALANCE", "TRADE_CAPITAL_PCT", "USE_ONLY_PPO",
-            "USE_YOYO_STRATEGY", "YOYO_RISK_PCT", "BYPASSED_FILTERS"
-        ]
-
-        for key, val in body.items():
-            if key in valid_keys:
-                if isinstance(val, bool):
-                    updates[key] = "true" if val else "false"
-                else:
-                    updates[key] = str(val).strip()
-
-        was_yoyo = Config.USE_YOYO_STRATEGY
-        success = save_env_values(updates)
-        if success:
-            Config.reload()
-            is_yoyo = Config.USE_YOYO_STRATEGY
-
-            # اعمال آنی تغییرات به ماژول مدیریت ریسک و اجرا
-            if global_executor:
-                global_executor.live_trading = Config.ROBORDER_LIVE
-                global_executor.max_concurrent_positions = Config.MAX_CONCURRENT_POSITIONS
-                global_executor.max_drawdown_limit_usdt = Config.MAX_DRAWDOWN_LIMIT_USDT
-
-            # همواره مطمئن می‌شویم که تسک استراتژی فعال و در حال اجرا باقی می‌ماند (thread-safe)
-            if global_engine and hasattr(global_engine, "yoyo"):
-                import asyncio as _asyncio
-                if global_loop:
-                    if not global_engine.yoyo.worker_task or global_engine.yoyo.worker_task.done():
-                        logger.info("⚡ Starting YoYo/PPO Strategy worker loop...")
-                        _asyncio.run_coroutine_threadsafe(global_engine.yoyo.start(), global_loop)
-                        exch = global_executor.exchange if (global_executor and hasattr(global_executor, 'exchange')) else None
-                        if exch:
-                            logger.info("📡 Fetching historical candles for Strategy...")
-                            _asyncio.run_coroutine_threadsafe(global_engine.yoyo.initialize_candles(exch), global_loop)
-                            
-            # اعمال آنی تغییرات به موتور هیبریدی اسکلپر و ضد اسپوفینگ
-            if global_engine:
-                global_engine.symbols = Config.SYMBOLS
-                global_engine.quote_denomination = Config.QUOTE_DENOMINATION
-                global_engine.depth_levels = Config.LOB_DEPTH_LEVELS
-                global_engine.trade_window_seconds = Config.TRADE_WINDOW_SECONDS
-                global_engine.spoof_threshold_pct = Config.SPOOF_THRESHOLD_PCT
-                global_engine.momentum_window_ms = Config.MOMENTUM_WINDOW_MS
-                global_engine.spread_threshold_bps = Config.SPREAD_THRESHOLD_BPS
-                global_engine.take_profit_bps = Config.TAKE_PROFIT_BPS
-                global_engine.stop_loss_bps = Config.STOP_LOSS_BPS
-                global_engine.cooldown_ms = Config.COOLDOWN_MS
-                global_engine.history_file_path = Config.HISTORY_FILE_PATH
-                
-
-                
-                if hasattr(global_engine, "yoyo") and global_engine.yoyo:
-                    global_engine.yoyo.symbols = Config.SYMBOLS
-                    global_engine.yoyo.quote_denomination = Config.QUOTE_DENOMINATION
-                
-                if hasattr(global_engine, "detector") and global_engine.detector:
-                    global_engine.detector.depth_levels = Config.LOB_DEPTH_LEVELS
-                    global_engine.detector.trade_window_seconds = Config.TRADE_WINDOW_SECONDS
-                    global_engine.detector.spoof_threshold_pct = Config.SPOOF_THRESHOLD_PCT
-
-            log_event("⚙️ تنظیمات عمومی سیستم توسط کنترل پنل داشبورد وب با موفقیت تغییر کرد و به صورت آنی اعمال شد.")
-            self.send_json({"success": True, "message": "تنظیمات با موفقیت ذخیره و در متغیرهای محیطی ربات لود شد."})
-        else:
-            self.send_json({"success": False, "message": "خطا در نوشتن تنظیمات روی فایل .env رخ داد."}, 500)
-
+        global global_engine, global_executor, global_loop
+        api_handlers.handle_api_set_settings(
+            self, body, global_engine, global_executor, global_loop, log_event, Config
+        )
 
 def start_dashboard_server(engine, executor, port: int = 3000, loop=None) -> None:
-    """راه‌اندازی سرور داشبورد تعاملی HTTP در پس‌زمینه به عنوان یک Daemon Thread با بایند سنکرون پورت"""
+    """ط±ط§ظ‡â€Œط§ظ†ط¯ط§ط²غŒ ط³ط±ظˆط± ط¯ط§ط´ط¨ظˆط±ط¯ طھط¹ط§ظ…ظ„غŒ HTTP ط¯ط± ظ¾ط³â€Œط²ظ…غŒظ†ظ‡ ط¨ظ‡ ط¹ظ†ظˆط§ظ† غŒع© Daemon Thread ط¨ط§ ط¨ط§غŒظ†ط¯ ط³ظ†ع©ط±ظˆظ† ظ¾ظˆط±طھ"""
     global global_engine, global_executor, global_loop, PORT
     global_engine = engine
     global_executor = executor
-    global_loop = loop  # ذخیره رفرنس حلقه اصلی asyncio برای زمان‌بندی ایمن تسک‌ها از ترد پس‌زمینه
+    global_loop = loop  # ط°ط®غŒط±ظ‡ ط±ظپط±ظ†ط³ ط­ظ„ظ‚ظ‡ ط§طµظ„غŒ asyncio ط¨ط±ط§غŒ ط²ظ…ط§ظ†â€Œط¨ظ†ط¯غŒ ط§غŒظ…ظ† طھط³ع©â€Œظ‡ط§ ط§ط² طھط±ط¯ ظ¾ط³â€Œط²ظ…غŒظ†ظ‡
     PORT = port
 
-    # راه‌اندازی ترد پایش مداوم پینگ سرورها در پس‌زمینه
+    # ط±ط§ظ‡â€Œط§ظ†ط¯ط§ط²غŒ طھط±ط¯ ظ¾ط§غŒط´ ظ…ط¯ط§ظˆظ… ظ¾غŒظ†ع¯ ط³ط±ظˆط±ظ‡ط§ ط¯ط± ظ¾ط³â€Œط²ظ…غŒظ†ظ‡
     ping_thread = threading.Thread(target=ping_updater_loop, daemon=True)
     ping_thread.start()
 
     server_address = ('', PORT)
     try:
         socketserver.ThreadingTCPServer.allow_reuse_address = True
-        # ایجاد سوکت و بایند به صورت سنکرون در ترد اصلی جهت جلوگیری از اجرای همزمان دو ربات روی یک اکانت
+        # ط§غŒط¬ط§ط¯ ط³ظˆع©طھ ظˆ ط¨ط§غŒظ†ط¯ ط¨ظ‡ طµظˆط±طھ ط³ظ†ع©ط±ظˆظ† ط¯ط± طھط±ط¯ ط§طµظ„غŒ ط¬ظ‡طھ ط¬ظ„ظˆع¯غŒط±غŒ ط§ط² ط§ط¬ط±ط§غŒ ظ‡ظ…ط²ظ…ط§ظ† ط¯ظˆ ط±ط¨ط§طھ ط±ظˆغŒ غŒع© ط§ع©ط§ظ†طھ
         httpd = socketserver.ThreadingTCPServer(server_address, DashboardHandler)
-        logger.info(f"🌐 Interactive UI/UX Dashboard Server initialized on port {PORT}")
+        logger.info(f"ًںŒگ Interactive UI/UX Dashboard Server initialized on port {PORT}")
     except Exception as e:
-        logger.critical(f"🚨 PORT BINDING FAILED: Port {PORT} is already in use by another active instance of ROBORDER!")
-        logger.critical("🚨 To prevent double-trading and margin blow-up disasters, this instance is shutting down immediately.")
-        logger.critical("🚨 Please run 'kill -9 <PID>' or stop the existing background bot process before starting a new one.")
+        logger.critical(f"ًںڑ¨ PORT BINDING FAILED: Port {PORT} is already in use by another active instance of ROBORDER!")
+        logger.critical("ًںڑ¨ To prevent double-trading and margin blow-up disasters, this instance is shutting down immediately.")
+        logger.critical("ًںڑ¨ Please run 'kill -9 <PID>' or stop the existing background bot process before starting a new one.")
         time.sleep(1.0)
         os._exit(1)
 
     def run_server():
         try:
             with httpd:
-                logger.info(f"🌐 Interactive UI/UX Dashboard Server running live at: http://localhost:{PORT}")
+                logger.info(f"ًںŒگ Interactive UI/UX Dashboard Server running live at: http://localhost:{PORT}")
                 httpd.serve_forever()
         except Exception as e:
             logger.error(f"Dashboard server runtime error: {e}")

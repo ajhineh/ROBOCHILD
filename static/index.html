@@ -2,6 +2,13 @@
 <html lang="fa" dir="rtl">
 
 <head>
+    <script>
+        // Apply saved theme immediately to prevent flashing
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ROBOCHILD // کنترل پنل تعاملی هوشمند</title>
@@ -22,6 +29,33 @@
             --text-main: #1a1f26;
             --text-muted: #626f84;
             --font-family: 'Vazirmatn', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --header-bg: rgba(255, 255, 255, 0.85);
+            --input-bg: #ffffff;
+            --btn-bg: rgba(0, 112, 243, 0.05);
+            --btn-border: rgba(0, 112, 243, 0.1);
+            --nav-hover-bg: rgba(0, 0, 0, 0.04);
+            --ping-bg: rgba(0, 0, 0, 0.02);
+            --border-color: var(--card-border);
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #0b0a1a;
+            --card-bg: rgba(20, 19, 42, 0.75);
+            --card-border: rgba(255, 255, 255, 0.06);
+            --primary-glow: #0088ff;
+            --secondary-glow: #00dfd8;
+            --accent-cyan: #0dd9c6;
+            --neon-green: #39e042;
+            --neon-red: #ff4d4f;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --header-bg: rgba(20, 19, 42, 0.85);
+            --input-bg: #131224;
+            --btn-bg: rgba(0, 112, 243, 0.15);
+            --btn-border: rgba(0, 112, 243, 0.25);
+            --nav-hover-bg: rgba(255, 255, 255, 0.05);
+            --ping-bg: rgba(255, 255, 255, 0.03);
+            --border-color: var(--card-border);
         }
 
         * {
@@ -56,7 +90,7 @@
 
         /* Glassmorphic Navbar */
         header {
-            background: rgba(255, 255, 255, 0.85);
+            background: var(--header-bg, rgba(255, 255, 255, 0.85));
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid var(--card-border);
@@ -99,6 +133,11 @@
             }
         }
 
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 0.4; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.4); }
+        }
+
         .logo-title h1 {
             font-size: 22px;
             font-weight: 800;
@@ -133,7 +172,7 @@
 
         .nav-btn:hover {
             color: var(--text-main);
-            background: rgba(0, 0, 0, 0.04);
+            background: var(--nav-hover-bg, rgba(0, 0, 0, 0.04));
         }
 
         .nav-btn.active {
@@ -436,7 +475,7 @@
 
         /* Terminal Console */
         .console-log {
-            background: #ffffff;
+            background: var(--input-bg, #ffffff);
             border: 1px solid var(--card-border);
             border-radius: 12px;
             padding: 16px;
@@ -505,7 +544,7 @@
         }
 
         .form-control {
-            background: #ffffff;
+            background: var(--input-bg, #ffffff);
             border: 1px solid var(--card-border);
             border-radius: 8px;
             padding: 10px 14px;
@@ -789,6 +828,21 @@
         .modal-close-x:hover {
             color: var(--neon-red);
         }
+        
+        /* AI Analyzer Spinner & Keyframes */
+        .spinner {
+            border: 4px solid rgba(13, 217, 198, 0.1);
+            border-left-color: var(--accent-cyan);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 
@@ -872,21 +926,21 @@
             <!-- نمایش وضعیت پینگ وب‌سوکت‌ها و سود کل -->
             <div
                 style="display: flex; gap: 12px; font-size: 11px; font-weight: 600; color: var(--text-muted); direction: ltr; font-family: 'Inter', sans-serif; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.02); border: 1px solid var(--card-border); padding: 6px 12px; border-radius: 8px;"
+                <div style="display: flex; align-items: center; gap: 6px; background: var(--ping-bg, rgba(0,0,0,0.02)); border: 1px solid var(--card-border); padding: 6px 12px; border-radius: 8px;"
                     id="header-pnl-badge">
                     <span style="color: var(--text-muted); font-size: 9px; text-transform: uppercase;">Total PnL:</span>
                     <span id="header-total-pnl"
                         style="color: var(--neon-green); font-weight: 700; font-family: 'Inter'; font-size: 11px;">$0.00+</span>
                 </div>
                 <div
-                    style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.02); border: 1px solid var(--card-border); padding: 6px 12px; border-radius: 8px;">
+                    style="display: flex; align-items: center; gap: 6px; background: var(--ping-bg, rgba(0,0,0,0.02)); border: 1px solid var(--card-border); padding: 6px 12px; border-radius: 8px;">
                     <span id="ping-binance-dot"
                         style="width: 8px; height: 8px; border-radius: 50%; background: var(--neon-green); box-shadow: 0 0 6px var(--neon-green); transition: all 0.3s;"></span>
                     <span>Binance Ping:</span>
                     <span id="ping-binance-val" style="color: var(--text-main);">0.0ms</span>
                 </div>
                 <div
-                    style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.02); border: 1px solid var(--card-border); padding: 6px 12px; border-radius: 8px;">
+                    style="display: flex; align-items: center; gap: 6px; background: var(--ping-bg, rgba(0,0,0,0.02)); border: 1px solid var(--card-border); padding: 6px 12px; border-radius: 8px;">
                     <span id="ping-solana-dot"
                         style="width: 8px; height: 8px; border-radius: 50%; background: var(--neon-green); box-shadow: 0 0 6px var(--neon-green); transition: all 0.3s;"></span>
                     <span>Solana RPC:</span>
@@ -897,6 +951,8 @@
                 <button class="nav-btn active" onclick="switchTab('dashboard')">داشبورد معاملاتی</button>
                 <button class="nav-btn" onclick="switchTab('diagnostics')">تحلیل معاملات</button>
                 <button class="nav-btn" onclick="switchTab('training')" id="nav-btn-training">مدیریت جفت ارز</button>
+                <button class="nav-btn" onclick="switchTab('screener')" id="nav-btn-screener">جستجوگر آلت‌کوین‌ها</button>
+                <button class="nav-btn" onclick="switchTab('analysis')" id="nav-btn-analysis">آنالیزور هوش عصبی</button>
                 <button class="nav-btn" onclick="switchTab('settings')">تنظیمات .env</button>
             </nav>
         </header>
@@ -1029,6 +1085,8 @@
                             <option value="500000">500,000 گام (عمیق - دقت بالا)</option>
                             <option value="1000000">1,000,000 گام (فوق‌العاده عمیق)</option>
                             <option value="1200000">1,200,000 گام (بهینه دوقلوها - تحقیق)</option>
+                            <option value="1500000">1,500,000 گام (پایدار با نرخ یادگیری پایین)</option>
+                            <option value="2000000">2,000,000 گام (حداکثر عمق یادگیری)</option>
                         </select>
                     </div>
                     <div class="switch-container" style="margin-top: 15px; margin-bottom: 15px;">
@@ -1053,6 +1111,75 @@
                         <label>مقدار نرخ یادگیری سفارشی (مانند 0.0001)</label>
                         <input type="number" id="train-lr-custom" class="form-control" step="0.00001" min="0.000001" max="0.01" value="0.00015">
                     </div>
+                    
+                    <!-- تنظیمات پیشرفته هوش مصنوعی مخصوص تیم تحقیق -->
+                    <details style="margin-top: 15px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
+                        <summary style="cursor: pointer; font-weight: bold; color: var(--accent-cyan); font-size: 13px; outline: none; user-select: none;">⚙️ تنظیمات پیشرفته هوش مصنوعی (تیم تحقیق)</summary>
+                        
+                        <div style="display: flex; justify-content: flex-end; margin-top: 10px; margin-bottom: 10px;">
+                            <button type="button" onclick="loadRecommendedSettings()" style="background: rgba(13, 217, 198, 0.15); border: 1px solid var(--accent-cyan); color: var(--accent-cyan); padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold; transition: all 0.3s;">📋 بارگذاری تنظیمات پیشنهادی</button>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">vf_coef (ضریب تابع ارزش)</label>
+                                <input type="number" id="train-vf-coef" class="form-control" step="0.1" min="0.1" max="2.0" value="0.8" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">n_steps (گام‌های آپدیت)</label>
+                                <select id="train-n-steps" class="form-control" style="padding: 6px; font-size: 12px; height: auto; background: #14132a; color: #ffffff;">
+                                    <option value="1024">1024 گام</option>
+                                    <option value="2048" selected>2048 گام</option>
+                                    <option value="4096">4096 گام</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">batch_size (اندازه دسته‌ها)</label>
+                                <select id="train-batch-size" class="form-control" style="padding: 6px; font-size: 12px; height: auto; background: #14132a; color: #ffffff;">
+                                    <option value="64">64 تایی</option>
+                                    <option value="128">128 تایی</option>
+                                    <option value="256" selected>256 تایی</option>
+                                    <option value="512">512 تایی</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">gamma (ضریب تنزیل)</label>
+                                <input type="number" id="train-gamma" class="form-control" step="0.01" min="0.80" max="0.999" value="0.98" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">gae_lambda (GAE Lambda)</label>
+                                <input type="number" id="train-gae-lambda" class="form-control" step="0.01" min="0.80" max="1.0" value="0.95" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">clip_range (دامنه برش)</label>
+                                <input type="number" id="train-clip-range" class="form-control" step="0.01" min="0.05" max="0.5" value="0.25" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            </div>
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">ent_coef (ضریب اکتشاف آنتروپی)</label>
+                                <input type="number" id="train-ent-coef" class="form-control" step="0.005" min="0.0" max="0.1" value="0.015" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            </div>
+                            
+                            <div style="grid-column: span 2; border-bottom: 1px solid var(--border-color); margin: 5px 0;"></div>
+                            
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">وزن مدل PPO</label>
+                                <input type="number" id="train-ppo-weight" class="form-control" step="0.05" min="0.0" max="1.0" value="0.50" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">وزن مدل SAC</label>
+                                <input type="number" id="train-sac-weight" class="form-control" step="0.05" min="0.0" max="1.0" value="0.30" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">وزن مدل TD3</label>
+                                <input type="number" id="train-td3-weight" class="form-control" step="0.05" min="0.0" max="1.0" value="0.20" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size:11px; color:var(--text-muted); display: block; margin-bottom: 4px;">آستانه تصمیم‌گیری (Threshold)</label>
+                                <input type="number" id="train-threshold" class="form-control" step="0.05" min="0.1" max="0.95" value="0.65" style="padding: 6px; font-size: 12px; background: #14132a; color: #ffffff;">
+                            </div>
+                        </div>
+                    </details>
+                    
                     <button class="btn-submit" id="train-submit-btn"
                         style="background: linear-gradient(135deg, var(--accent-cyan), var(--secondary-glow)); margin-top: 15px;"
                         onclick="startTraining()">🚀 شروع فرآیند واکشی اطلاعات و آموزش شبکه عصبی</button>
@@ -1086,15 +1213,181 @@
             </div>
         </div>
 
+        <!-- 2.5. AI NEURAL ANALYSIS VIEW -->
+        <div id="tab-analysis" class="tab-content panel-container" style="grid-template-columns: 1fr; gap: 24px;">
+            <div class="glass-panel" style="margin-bottom: 0;">
+                <div class="panel-header">
+                    <div class="panel-title">🛡️ آنالیزور فوق پیشرفته یادگیری تقویت‌پذیر (Ensemble Model Evaluator)</div>
+                </div>
+                <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 20px;">
+                    این ماژول ارزیابی‌های کاملاً فنی و دقیقی از فرآیند آموزش مدل‌های Ensemble (PPO + SAC + TD3) انجام می‌دهد. 
+                    شما می‌توانید بک‌تست واقعی را روی داده‌های ۵ روز گذشته صرافی بایننس شبیه‌سازی کرده، نمودارهای بازدهی و واریانس مدل را بررسی نمایید 
+                    و مشکلات آموزش (نظیر فاجعه فراموشی یا سقوط آنتروپی) را به صورت خودکار ممیزی کنید.
+                </div>
+
+                <div style="display: flex; gap: 15px; align-items: flex-end; margin-bottom: 25px; flex-wrap: wrap;">
+                    <div class="form-group" style="margin-bottom: 0; min-width: 200px; flex: 1;">
+                        <label style="display: block; margin-bottom: 8px;">انتخاب ارز هدف جهت بررسی کیفیت یادگیری</label>
+                        <select id="analysis-symbol-select" class="form-control" style="background: var(--input-bg, #14132a); border-color: var(--card-border); color: var(--text-main); padding: 10px; width: 100%; border-radius: 8px; font-family: inherit;">
+                            <!-- Dynamically loaded -->
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 0; min-width: 150px;">
+                        <label style="display: block; margin-bottom: 8px;">نوع معامله شبیه‌سازی</label>
+                        <select id="analysis-market-type" class="form-control" style="background: var(--input-bg, #14132a); border-color: var(--card-border); color: var(--text-main); padding: 10px; width: 100%; border-radius: 8px; font-family: inherit;">
+                            <option value="futures" selected>فیوچرز (با اهرم)</option>
+                            <option value="spot">اسپات (بدون اهرم)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 0; min-width: 150px;">
+                        <label style="display: block; margin-bottom: 8px;">دوره زمانی واکشی داده</label>
+                        <select id="analysis-days-back" class="form-control" style="background: var(--input-bg, #14132a); border-color: var(--card-border); color: var(--text-main); padding: 10px; width: 100%; border-radius: 8px; font-family: inherit;">
+                            <option value="1">۱ روز گذشته</option>
+                            <option value="5" selected>۵ روز گذشته</option>
+                            <option value="10">۱۰ روز گذشته</option>
+                        </select>
+                    </div>
+
+                    <button class="action-btn" onclick="startAnalysis()" style="background: linear-gradient(135deg, var(--accent-cyan) 0%, #007aff 100%); color:#fff; border:none; padding:12px 24px; border-radius:8px; font-weight:bold; cursor:pointer; font-family:inherit; height:46px; transition: all 0.3s; box-shadow: 0 4px 15px rgba(13, 217, 198, 0.2);">
+                        🚀 شروع فرآیند واکشی داده و تحلیل هوش مصنوعی
+                    </button>
+                </div>
+            </div>
+
+            <!-- وضعیت در حال اجرا -->
+            <div id="analysis-running-panel" class="glass-panel" style="display:none; text-align:center; padding: 40px 20px;">
+                <div class="spinner" style="margin-bottom: 20px;"></div>
+                <div style="font-weight:bold; font-size:16px; color:var(--accent-cyan); margin-bottom:10px;">در حال اجرای ممیزی و شبیه‌سازی ترید...</div>
+                <div style="font-size:13px; color:var(--text-muted); margin-bottom:30px;">این پروسه ممکن است بین ۱۵ الی ۳۰ ثانیه جهت واکشی اطلاعات و اجرای گام‌به‌گام بک‌تست به طول بینجامد.</div>
+                
+                <div class="panel-header" style="text-align:right;">
+                    <div class="panel-title" style="font-size:14px; color:var(--text-muted);">لاگ فرآیند بررسی پس‌زمینه:</div>
+                </div>
+                <div id="analysis-console" style="background:#080711; border:1px solid #1d1b38; border-radius:8px; padding:15px; text-align:left; font-family:monospace; color:#8e8e93; font-size:12px; height:200px; overflow-y:auto; line-height:1.8; direction:ltr;">
+                    <!-- Real-time logs -->
+                </div>
+            </div>
+
+            <!-- نتایج تحلیل پس از اتمام -->
+            <div id="analysis-results-panel" style="display:none; display: flex; flex-direction:column; gap:24px;">
+                
+                <div style="display:grid; grid-template-columns:1.5fr 1fr; gap:24px;">
+                    <!-- کارت شاخص‌های مالی -->
+                    <div class="glass-panel" style="margin-bottom:0;">
+                        <div class="panel-header">
+                            <div class="panel-title">📈 عملکرد مالی مدل در بک‌تست واقعی (داده‌های ۵ روز گذشته)</div>
+                        </div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top:15px;">
+                            <div style="background:#151328; border:1px solid #232145; padding:15px; border-radius:8px; text-align:center;">
+                                <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">سود کل بک‌تست</div>
+                                <div id="an-total-return" style="font-size:20px; font-weight:bold;">0.00%</div>
+                            </div>
+                            <div style="background:#151328; border:1px solid #232145; padding:15px; border-radius:8px; text-align:center;">
+                                <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">نسبت شارپ (Sharpe)</div>
+                                <div id="an-sharpe-ratio" class="value-cyan" style="font-size:20px; font-weight:bold;">0.00</div>
+                            </div>
+                            <div style="background:#151328; border:1px solid #232145; padding:15px; border-radius:8px; text-align:center;">
+                                <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">نسبت سورتینو (Sortino)</div>
+                                <div id="an-sortino-ratio" class="value-cyan" style="font-size:20px; font-weight:bold;">0.00</div>
+                            </div>
+                            <div style="background:#151328; border:1px solid #232145; padding:15px; border-radius:8px; text-align:center;">
+                                <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">حداکثر دروداون (Max DD)</div>
+                                <div id="an-max-drawdown" class="value-red" style="font-size:20px; font-weight:bold;">0.00%</div>
+                            </div>
+                            <div style="background:#151328; border:1px solid #232145; padding:15px; border-radius:8px; text-align:center;">
+                                <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">فاکتور سود (Profit Factor)</div>
+                                <div id="an-profit-factor" class="value-cyan" style="font-size:20px; font-weight:bold;">0.00</div>
+                            </div>
+                            <div style="background:#151328; border:1px solid #232145; padding:15px; border-radius:8px; text-align:center;">
+                                <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">نسبت برد (Win Rate)</div>
+                                <div id="an-win-rate" class="value-green" style="font-size:20px; font-weight:bold;">0.00%</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- مقایسه Volume Bars vs Time Bars -->
+                    <div class="glass-panel" style="margin-bottom:0; display:flex; flex-direction:column; justify-content:space-between;">
+                        <div>
+                            <div class="panel-header">
+                                <div class="panel-title">🔄 تحلیل ساختار: Volume Bars در مقابل Time Bars</div>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:13px;">
+                                    <span>شارپ ساختار فشرده (Volume):</span>
+                                    <strong id="an-comp-vol-sharpe" class="value-green">0.00</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:13px;">
+                                    <span>شارپ ساختار خطی زمان (Time):</span>
+                                    <strong id="an-comp-time-sharpe" style="color:var(--text-muted);">0.00</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-size:13px;">
+                                    <span>تفاوت درصد سودآوری:</span>
+                                    <strong id="an-comp-return-diff">0.00%</strong>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="an-comp-winner-card" style="padding:10px; background:rgba(13, 217, 198, 0.08); border:1px solid rgba(13, 217, 198, 0.2); border-radius:8px; text-align:center; font-size:12px;">
+                            ساختار برنده: <strong id="an-comp-winner-val" class="value-cyan">Volume Bars</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- جدول ممیزی عیب‌یابی و هشدارهای آموزش -->
+                <div class="glass-panel" style="margin-bottom:0;">
+                    <div class="panel-header">
+                        <div class="panel-title">🛡️ ممیزی کیفی و تشخیص هوشمند مشکلات آموزش شبکه عصبی</div>
+                    </div>
+                    <div style="overflow-x:auto; margin-top:15px;">
+                        <table style="width:100%; border-collapse:collapse; text-align:right;">
+                            <thead>
+                                <tr style="border-bottom:2px solid var(--border-color); color:var(--text-muted);">
+                                    <th style="padding:10px; text-align:right;">سطح ریسک</th>
+                                    <th style="padding:10px; text-align:right;">متریک هدف</th>
+                                    <th style="padding:10px; text-align:right;">مقدار عددی</th>
+                                    <th style="padding:10px; text-align:right;">توصیف پایداری سیستم</th>
+                                    <th style="padding:10px; text-align:right;">پیشنهاد اصلاحی</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analysis-diagnostics-body">
+                                <!-- Trs populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- نمودارهای بازدهی و دکمه دانلود گزارش -->
+                <div class="glass-panel" style="margin-bottom:0;">
+                    <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                        <div class="panel-title">📊 نمودارهای تحلیلی و شبیه‌سازی Equity Curve</div>
+                        <a id="an-download-report-btn" target="_blank" href="#" style="background:rgba(13, 217, 198, 0.1); border:1px solid rgba(13, 217, 198, 0.3); color:var(--accent-cyan); text-decoration:none; padding:8px 16px; border-radius:6px; font-weight:bold; font-size:13px; transition:all 0.3s; display:inline-block;">
+                            📄 دانلود گزارش تفصیلی HTML
+                        </a>
+                    </div>
+                    <div style="text-align:center; margin-top:20px;">
+                        <img id="an-equity-chart-img" src="" alt="نمودار تحلیل بازدهی" style="max-width:100%; border-radius:8px; border:1px solid #222040; display:none;">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 3. SETTINGS VIEW -->
         <div id="tab-settings" class="tab-content panel-container" style="grid-template-columns: 1.5fr 1fr; gap: 24px;">
             <!-- Wide panel for settings editing -->
             <div class="glass-panel">
                 <div class="panel-header">
                     <div class="panel-title">پیکربندی هوشمند پارامترهای عددی و متغیرهای محیطی ربات (.env Sync)</div>
-                    <div class="tag-model"
-                        style="background: rgba(121, 40, 202, 0.1); color: var(--primary-glow); border-color: rgba(121, 40, 202, 0.2)">
-                        همگام‌سازی لحظه‌ای</div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button type="button" onclick="toggleTheme()" id="theme-toggle-btn"
+                            style="background: var(--btn-bg); border: 1px solid var(--btn-border); padding: 6px 12px; border-radius: 8px; color: var(--text-main); font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.3s; font-weight: 600; font-family: inherit;">
+                            🌙 تم تاریک
+                        </button>
+                        <div class="tag-model"
+                            style="background: rgba(121, 40, 202, 0.1); color: var(--primary-glow); border-color: rgba(121, 40, 202, 0.2); margin: 0;">
+                            همگام‌سازی لحظه‌ای</div>
+                    </div>
                 </div>
                 <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
                     تمام پارامترهای زیر به طور مستقیم روی فایل تنظیمات عمومی **[.env]** ذخیره شده و فوراً در حافظه
@@ -1119,6 +1412,13 @@
                             <span class="switch-label">معامله انحصاری فقط با هوش مصنوعی (Use only PPO)</span>
                             <label class="switch">
                                 <input type="checkbox" id="s-use-only-ppo">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="switch-container" style="margin-top: 10px;">
+                            <span class="switch-label">فعال‌سازی اسکنر آلت‌کوین‌ها (Altcoin Screener)</span>
+                            <label class="switch">
+                                <input type="checkbox" id="s-screener-enabled">
                                 <span class="slider"></span>
                             </label>
                         </div>
@@ -1172,20 +1472,7 @@
                             <input type="text" id="s-quicknode-ws" class="form-control" placeholder="wss://...">
                         </div>
 
-                        <div class="switch-container" style="margin-top: 15px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid rgba(255,255,255,0.04);">
-                            <span class="switch-label">۲۸. تراز جریان ۳۰ ثانیه اول (DEX_FLOW_BALANCE_FIRST_30S)</span>
-                            <label class="switch">
-                                <input type="checkbox" id="f-dex-flow-balance-first-30s" checked>
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                        <div class="switch-container" style="margin-top: 10px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid rgba(255,255,255,0.04);">
-                            <span class="switch-label">۲۹. تراز جریان ۳۰ ثانیه آخر (DEX_FLOW_BALANCE_LAST_30S)</span>
-                            <label class="switch">
-                                <input type="checkbox" id="f-dex-flow-balance-last-30s" checked>
-                                <span class="slider"></span>
-                            </label>
-                        </div>
+
 
                         <div style="border-top: 1px dashed var(--card-border); margin-top: 20px; padding-top: 15px;">
                             <label
@@ -1499,6 +1786,102 @@
             </div>
         </div>
 
+        <!-- 5. Altcoin Screener VIEW -->
+        <div id="tab-screener" class="tab-content panel-container" style="grid-template-columns: 2fr 1fr; gap: 24px;">
+            <!-- Left Panel: Top 15 Altcoins Table -->
+            <div class="glass-panel">
+                <div class="panel-header">
+                    <div class="panel-title" style="display:flex; align-items:center; gap:10px;">
+                        اسکنر نقدینگی و شناسایی خودکار آلت‌کوین‌های مستعد ترند (Altcoin Screener)
+                        <span id="screener-refresh-dot" style="
+                            width: 8px; height: 8px; border-radius: 50%;
+                            background: var(--accent-cyan);
+                            box-shadow: 0 0 6px var(--accent-cyan);
+                            opacity: 0;
+                            transition: opacity 0.3s;
+                            animation: pulse-dot 1.2s infinite;
+                            flex-shrink: 0;
+                        " title="در حال به‌روزرسانی..."></span>
+                    </div>
+                    <button onclick="runScreenerScan()" class="btn-submit" style="padding: 6px 16px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                        🔍 اجرای اسکن نقدینگی صرافی
+                    </button>
+                </div>
+                <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+
+                    این اسکنر به طور مستقیم حجم معاملات ۲۴ ساعته بازار فیوچرز صرافی را بررسی کرده و ۱۵ جفت ارز برتر (غیر از استیبل‌کوین‌ها) را لیست می‌کند. شما می‌توانید مدل‌های عصبی هر جفت‌ارز را از اینجا مدیریت کنید.
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="open-positions-table" style="width: 100%; text-align: right;">
+                        <thead>
+                            <tr>
+                                <th style="text-align: right; width: 40px;">رتبه</th>
+                                <th style="text-align: right;">نماد معاملاتی</th>
+                                <th style="text-align: right;">حجم ۲۴ ساعته</th>
+                                <th style="text-align: right;">تغییرات ۲۴ ساعته</th>
+                                <th style="text-align: right;">قیمت فعلی</th>
+                                <th style="text-align: right;">وضعیت مدل هوش مصنوعی</th>
+                                <th style="text-align: right;">وضعیت معاملات</th>
+                                <th style="text-align: right; width: 180px;">عملیات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="screener-table-body">
+                            <tr>
+                                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                                    در حال بارگذاری نتایج اسکن نقدینگی صرافی...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right Panel: Rules & Explanations -->
+            <div style="display: flex; flex-direction: column; gap: 24px;">
+                <div class="glass-panel" style="border-color: rgba(0, 223, 216, 0.2);">
+                    <div class="panel-title" style="color: var(--accent-cyan);">خط لوله هوشمند آموزش خودکار دو فازه</div>
+                    <p style="font-size: 12px; color: var(--text-muted); line-height: 1.8;">
+                        سیستم به صورت هوشمند فرآیند آموزش آلت‌کوین‌ها را در دو فاز کنترل می‌کند:
+                    </p>
+                    <div style="font-size: 12px; line-height: 1.8; margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
+                        <div style="background: rgba(0, 112, 243, 0.05); border: 1px solid rgba(0, 112, 243, 0.1); border-radius: 8px; padding: 10px;">
+                            <strong>فاز ۱: سنجش اولیه (۲۰۰,۰۰۰ گام)</strong>
+                            <p style="opacity: 0.8; font-size: 11px;">پس از اتمام ۲۰۰ هزار گام، یک بک‌تست ارزیابی اجرا می‌شود. اگر نرخ برد (Win Rate) بزرگتر یا مساوی ۶۰ درصد باشد، فاز ۲ آغاز می‌شود.</p>
+                        </div>
+                        <div style="background: rgba(31, 135, 34, 0.05); border: 1px solid rgba(31, 135, 34, 0.1); border-radius: 8px; padding: 10px;">
+                            <strong>فاز ۲: ارتقا و فعال‌سازی خودکار (۵۰۰,۰۰۰ گام)</strong>
+                            <p style="opacity: 0.8; font-size: 11px;">آموزش تا ۵۰۰ هزار گام تکمیل شده و جفت ارز به صورت خودکار به پورتفولیوی معاملاتی فعال ربات لایو اضافه می‌شود.</p>
+                        </div>
+                        <div style="background: rgba(217, 56, 58, 0.05); border: 1px solid rgba(217, 56, 58, 0.1); border-radius: 8px; padding: 10px;">
+                            <strong>توقف و هشدار عدم تایید</strong>
+                            <p style="opacity: 0.8; font-size: 11px;">اگر نرخ برد فاز ۱ کمتر از ۶۰ درصد باشد، آموزش متوقف شده و با صدور هشدار، جفت‌ارز غیرفعال باقی می‌ماند تا تنظیمات دستی توسط کاربر اعمال شود.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel">
+                    <div class="panel-title">تنظیمات مدیریت ریسک و سرمایه پورتفولیو</div>
+                    <p style="font-size: 12px; color: var(--text-muted); line-height: 1.8;">
+                        توزیع ریسک موازی دارایی‌ها بر اساس فاکتورهای زیر مدیریت می‌شود:
+                    </p>
+                    <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; margin-top: 10px;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--card-border); padding-bottom: 6px;">
+                            <span>حداکثر موقعیت‌های همزمان فعال:</span>
+                            <strong style="color: var(--primary-glow);" id="screener-max-pos">۳ موقعیت</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--card-border); padding-bottom: 6px;">
+                            <span>تخصیص سرمایه به هر ترید:</span>
+                            <strong style="color: var(--primary-glow);" id="screener-capital-pct">۲۵٪ (معادل ۱۰۰۰$)</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding-bottom: 6px;">
+                            <span>مارجین آزاد محافظتی (Buffer):</span>
+                            <strong style="color: var(--neon-green);" id="screener-safety-buffer">۲۵٪ (معادل ۱۰۰۰$)</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 4. DIAGNOSTICS & REVIEWER VIEW -->
         <div id="tab-diagnostics" class="tab-content panel-container" style="grid-template-columns: 1fr;">
             <div class="glass-panel">
@@ -1556,13 +1939,14 @@
                                 <th>قیمت ورود</th>
                                 <th>قیمت خروج</th>
                                 <th>اهرم</th>
+                                <th>مدل تصمیم‌گیر</th>
                                 <th>سود/ضرر (PnL)</th>
                                 <th>گزارش</th>
                             </tr>
                         </thead>
                         <tbody id="diag-table-body">
                             <tr>
-                                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">در
+                                <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">در
                                     حال دریافت سابقه معاملات...</td>
                             </tr>
                         </tbody>
@@ -1579,6 +1963,26 @@
         // API Base endpoint logic
         const API_BASE = window.location.origin;
 
+        // Theme Management
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeButton(newTheme);
+        }
+
+        function updateThemeButton(theme) {
+            const btn = document.getElementById('theme-toggle-btn');
+            if (btn) {
+                if (theme === 'dark') {
+                    btn.innerHTML = '☀️ تم روشن';
+                } else {
+                    btn.innerHTML = '🌙 تم تاریک';
+                }
+            }
+        }
+
         // Switch panel tabs
         function switchTab(tabId) {
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
@@ -1590,6 +1994,10 @@
 
             const activeTabPanel = document.getElementById(`tab-${tabId}`);
             if (activeTabPanel) activeTabPanel.classList.add('active');
+
+            if (tabId === 'screener') {
+                runScreenerScan();
+            }
         }
 
         // Show toast alerts
@@ -1717,6 +2125,7 @@
                 if (!window.settingsLoaded && Object.keys(settings).length > 0 && myRequestId === window.statusRequestId) {
                     document.getElementById("s-roborder-live").value = String(settings.ROBORDER_LIVE);
                     document.getElementById("s-use-only-ppo").checked = !!settings.USE_ONLY_PPO;
+                    document.getElementById("s-screener-enabled").checked = !!settings.SCREENER_ENABLED;
                     document.getElementById("s-use-yoyo-strategy").checked = !!settings.USE_YOYO_STRATEGY;
                     document.getElementById("s-yoyo-risk-pct").value = settings.YOYO_RISK_PCT || 1.0;
                     document.getElementById("s-initial-balance").value = settings.INITIAL_BALANCE || 10000;
@@ -1748,7 +2157,7 @@
                         "LINEAR_REGRESSION_TRENDLINE", "DYNAMIC_RISK_SIZING", "TP1_EXIT_LOGIC",
                         "TP2_EXIT_LOGIC", "ASYNC_QUEUE_INGESTION", "FALLING_KNIFE_PROTECTION",
                         "ORDER_TTL_EXPIRATION", "DEX_FLOW_CONFIRMATION", "SPREAD_THRESHOLD_BPS",
-                        "MAKER_POST_ONLY", "DEX_FLOW_BALANCE_FIRST_30S", "DEX_FLOW_BALANCE_LAST_30S"
+                        "MAKER_POST_ONLY"
                     ];
                     filterIds.forEach(id => {
                         const el = document.getElementById("f-" + id.toLowerCase().replace(/_/g, "-"));
@@ -1784,7 +2193,8 @@
                 const bots = data.active_bots || [];
                 const assetContainer = document.getElementById("asset-list-container");
 
-                if (bots.length > 0) {
+                const isEditingBps = document.activeElement && document.activeElement.closest && document.activeElement.closest("#asset-list-container");
+                if (bots.length > 0 && !isEditingBps) {
                     assetContainer.innerHTML = "";
                     bots.forEach(b => {
                         const obiPercent = Math.round(((b.raw_obi + 1.0) / 2.0) * 100);
@@ -1844,11 +2254,19 @@
                                         <span class="value-red">فروش: ${b.market_sell_vol}</span>
                                     </div>
                                 </div>
-                                <div class="vol-box">
-                                    <div class="vol-label">حجم معاملات بلاکچین (DEX Solana 10s)</div>
-                                    <div class="vol-val">
-                                        <span class="value-green">خرید: $${b.dex_buy_vol}</span>
-                                        <span class="value-red">فروش: $${b.dex_sell_vol}</span>
+                                <div class="vol-box" style="display: flex; flex-direction: column; justify-content: center; gap: 4px;">
+                                    <div class="vol-label" style="margin-bottom: 2px;">تنظیمات اسکلپ (TP / SL BPS)</div>
+                                    <div class="vol-val" style="display: flex; align-items: center; gap: 8px; justify-content: center;">
+                                        <div style="display:flex; align-items:center; gap:3px;">
+                                            <span style="font-size:10px; color:var(--text-muted);">حد سود:</span>
+                                            <input type="number" value="${b.take_profit_bps || 15}" id="tp-bps-${b.symbol.replace(/\//g, '-').replace(/:/g, '-')}" style="width: 40px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: var(--neon-green); text-align: center; border-radius: 4px; padding: 2px; font-size: 11px; font-weight: bold;" onchange="updateSymbolBps('${b.symbol}', 'take_profit_bps', this.value)" onkeydown="if(event.key==='Enter') this.blur();">
+                                            <span style="font-size:9px; color:var(--text-muted);">BPS</span>
+                                        </div>
+                                        <div style="display:flex; align-items:center; gap:3px;">
+                                            <span style="font-size:10px; color:var(--text-muted);">حد ضرر:</span>
+                                            <input type="number" value="${b.stop_loss_bps || 10}" id="sl-bps-${b.symbol.replace(/\//g, '-').replace(/:/g, '-')}" style="width: 40px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: var(--neon-red); text-align: center; border-radius: 4px; padding: 2px; font-size: 11px; font-weight: bold;" onchange="updateSymbolBps('${b.symbol}', 'stop_loss_bps', this.value)" onkeydown="if(event.key==='Enter') this.blur();">
+                                            <span style="font-size:9px; color:var(--text-muted);">BPS</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1891,16 +2309,55 @@
 
                 // 5. Update Trained Models chips
                 const trainedGrid = document.getElementById("trained-models-grid");
+                const selectEl = document.getElementById("analysis-symbol-select");
                 if (data.available_models && data.available_models.length > 0) {
                     trainedGrid.innerHTML = "";
+                    
+                    // Save previous selection of select drop-down
+                    const previousSelection = selectEl ? selectEl.value : "";
+                    if (selectEl) selectEl.innerHTML = "";
+                    
                     data.available_models.forEach(model => {
                         const chip = document.createElement("div");
                         chip.className = "model-chip";
                         chip.innerHTML = `<span class="model-chip-dot"></span> ${model} <span onclick="removeModel('${model}')" style="color:var(--neon-red); cursor:pointer; margin-right:4px; font-weight:800;">×</span>`;
                         trainedGrid.appendChild(chip);
+                        
+                        if (selectEl) {
+                            const opt = document.createElement("option");
+                            opt.value = model;
+                            opt.innerText = model;
+                            selectEl.appendChild(opt);
+                        }
                     });
+                    
+                    if (selectEl && previousSelection && data.available_models.includes(previousSelection)) {
+                        selectEl.value = previousSelection;
+                    }
                 } else {
                     trainedGrid.innerHTML = `<p style="color: var(--text-muted); font-size:11px;">هیچ مدل آموزش‌دیده‌ای یافت نشد.</p>`;
+                    if (selectEl) {
+                        selectEl.innerHTML = '<option value="">هیچ مدلی یافت نشد</option>';
+                    }
+                }
+
+                // 6. Update Screener Risk Labels
+                if (settings) {
+                    const maxPos = settings.MAX_CONCURRENT_POSITIONS || 3;
+                    const capitalPct = settings.TRADE_CAPITAL_PCT || 25;
+                    const initialBalance = settings.INITIAL_BALANCE || 4000;
+                    const capitalUsdt = Math.round((initialBalance * capitalPct) / 100);
+                    const bufferPct = 100 - (maxPos * capitalPct);
+                    const bufferUsdt = Math.round((initialBalance * bufferPct) / 100);
+                    
+                    const maxPosEl = document.getElementById("screener-max-pos");
+                    if (maxPosEl) maxPosEl.innerText = `${maxPos} موقعیت`;
+                    
+                    const capPctEl = document.getElementById("screener-capital-pct");
+                    if (capPctEl) capPctEl.innerText = `${capitalPct}٪ (معادل ${capitalUsdt}$)`;
+                    
+                    const bufferEl = document.getElementById("screener-safety-buffer");
+                    if (bufferEl) bufferEl.innerText = `${bufferPct}٪ (معادل ${bufferUsdt}$)`;
                 }
 
             } catch (err) {
@@ -1984,7 +2441,7 @@
                 "LINEAR_REGRESSION_TRENDLINE", "DYNAMIC_RISK_SIZING", "TP1_EXIT_LOGIC",
                 "TP2_EXIT_LOGIC", "ASYNC_QUEUE_INGESTION", "FALLING_KNIFE_PROTECTION",
                 "ORDER_TTL_EXPIRATION", "DEX_FLOW_CONFIRMATION", "SPREAD_THRESHOLD_BPS",
-                "MAKER_POST_ONLY", "DEX_FLOW_BALANCE_FIRST_30S", "DEX_FLOW_BALANCE_LAST_30S"
+                "MAKER_POST_ONLY"
             ];
             const bypassed = [];
             filterIds.forEach(id => {
@@ -1997,6 +2454,7 @@
             const updates = {
                 ROBORDER_LIVE: document.getElementById("s-roborder-live").value === "true",
                 USE_ONLY_PPO: document.getElementById("s-use-only-ppo").checked,
+                SCREENER_ENABLED: document.getElementById("s-screener-enabled").checked,
                 USE_YOYO_STRATEGY: document.getElementById("s-use-yoyo-strategy").checked,
                 YOYO_RISK_PCT: parseFloat(document.getElementById("s-yoyo-risk-pct").value),
                 INITIAL_BALANCE: parseFloat(document.getElementById("s-initial-balance").value),
@@ -2063,6 +2521,30 @@
             }
         }
 
+        function loadRecommendedSettings() {
+            document.getElementById("train-vf-coef").value = 0.8;
+            document.getElementById("train-n-steps").value = "2048";
+            document.getElementById("train-batch-size").value = "256";
+            document.getElementById("train-gamma").value = 0.99;
+            document.getElementById("train-gae-lambda").value = 0.95;
+            document.getElementById("train-clip-range").value = 0.25;
+            document.getElementById("train-ent-coef").value = 0.008;
+            
+            document.getElementById("train-ppo-weight").value = 0.50;
+            document.getElementById("train-sac-weight").value = 0.30;
+            document.getElementById("train-td3-weight").value = 0.20;
+            document.getElementById("train-threshold").value = 0.65;
+            
+            // ست کردن زمان‌بند نرخ یادگیری روی گزینه کاهشی خطی پیشنهادی
+            document.getElementById("train-lr").value = "linear_0.00015";
+            document.getElementById("train-lr-custom-container").style.display = "none";
+            
+            // ست کردن گام‌های یادگیری روی ۵۰۰ هزار گام
+            document.getElementById("train-steps").value = "500000";
+
+            showToast("تنظیمات بهینه پیشنهادی تیم تحقیق با موفقیت در فیلدها لود شد.");
+        }
+
         // Start background training thread (1m LSTM-PPO model)
         async function startTraining() {
             const symbol = document.getElementById("train-symbol").value.trim();
@@ -2085,6 +2567,20 @@
                 return;
             }
 
+            // خواندن پارامترهای پیشرفته هوش مصنوعی
+            const vfCoef = parseFloat(document.getElementById("train-vf-coef").value);
+            const nSteps = parseInt(document.getElementById("train-n-steps").value);
+            const batchSize = parseInt(document.getElementById("train-batch-size").value);
+            const gamma = parseFloat(document.getElementById("train-gamma").value);
+            const gaeLambda = parseFloat(document.getElementById("train-gae-lambda").value);
+            const clipRange = parseFloat(document.getElementById("train-clip-range").value);
+            const entCoef = parseFloat(document.getElementById("train-ent-coef").value);
+            
+            const ppoWeight = parseFloat(document.getElementById("train-ppo-weight").value);
+            const sacWeight = parseFloat(document.getElementById("train-sac-weight").value);
+            const td3Weight = parseFloat(document.getElementById("train-td3-weight").value);
+            const threshold = parseFloat(document.getElementById("train-threshold").value);
+
             try {
                 const response = await fetch(`${API_BASE}/api/add_symbol`, {
                     method: 'POST',
@@ -2093,7 +2589,18 @@
                         symbol: symbol, 
                         steps: steps,
                         resume: resume,
-                        learning_rate: learningRate
+                        learning_rate: learningRate,
+                        vf_coef: vfCoef,
+                        n_steps: nSteps,
+                        batch_size: batchSize,
+                        gamma: gamma,
+                        gae_lambda: gaeLambda,
+                        clip_range: clipRange,
+                        ent_coef: entCoef,
+                        ppo_weight: ppoWeight,
+                        sac_weight: sacWeight,
+                        td3_weight: td3Weight,
+                        ensemble_threshold: threshold
                     })
                 });
                 const res = await response.json();
@@ -2107,6 +2614,37 @@
                 }
             } catch (err) {
                 showToast("خطا در تریگر کردن فرآیند یادگیری هوش مصنوعی.", true);
+            }
+        }
+
+        // Update take_profit_bps and stop_loss_bps for a specific symbol
+        async function updateSymbolBps(symbol, field, value) {
+            const cleanId = symbol.replace(/\//g, '-').replace(/:/g, '-');
+            const tpEl = document.getElementById(`tp-bps-${cleanId}`);
+            const slEl = document.getElementById(`sl-bps-${cleanId}`);
+            if (!tpEl || !slEl) return;
+            
+            const tp_bps = parseInt(tpEl.value);
+            const sl_bps = parseInt(slEl.value);
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/set_bot_settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        take_profit_bps: tp_bps,
+                        stop_loss_bps: sl_bps
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showToast(data.message);
+                } else {
+                    showToast(data.message, true);
+                }
+            } catch (err) {
+                showToast("خطا در ارتباط با سرور رخ داد.", true);
             }
         }
 
@@ -2192,6 +2730,10 @@
                             isCompleted = true;
                         } else if (p.status.includes("error")) {
                             statusColor = "var(--neon-red)";
+                            isCompleted = true;
+                        } else if (p.status === "stopped" || p.status.startsWith("stopped")) {
+                            statusColor = "var(--text-muted)";
+                            isCompleted = true;
                         }
 
                         div.innerHTML = `
@@ -2212,6 +2754,54 @@
                 } else {
                     container.innerHTML = `<p style="text-align: center; color: var(--text-muted); font-size: 12px;">در حال حاضر هیچ آموزش فعالی در پس‌زمینه در جریان نیست.</p>`;
                 }
+
+                // Update screener table rows training progress if visible
+                const screenerActive = document.getElementById("tab-screener").classList.contains("active");
+                if (screenerActive && progressList) {
+                    progressList.forEach(p => {
+                        const cleanBase = p.model_name.replace("ppo_volume_bars_child_", "").toUpperCase();
+                        // Find the row in screener table body
+                        const rows = document.querySelectorAll("#screener-table-body tr");
+                        rows.forEach(row => {
+                            const cells = row.querySelectorAll("td");
+                            if (cells.length > 1) {
+                                const symbolText = cells[1].innerText;
+                                const baseAsset = symbolText.split("/")[0].toUpperCase();
+                                if (baseAsset === cleanBase) {
+                                    // Update progress cell (which is column index 5)
+                                    const progressCell = cells[5];
+                                    const pct = p.percentage;
+                                    const status = p.status;
+                                    let statusColor = "var(--accent-cyan)";
+                                    if (status === "completed") statusColor = "var(--neon-green)";
+                                    else if (status.includes("error")) statusColor = "var(--neon-red)";
+                                    
+                                    if (status === "training") {
+                                        progressCell.innerHTML = `
+                                            <div style="font-size:11px; margin-bottom:4px; color:var(--accent-cyan); font-weight:bold;">
+                                                🧠 آموزش فاز ${pct >= 40 ? '۲' : '۱'}: ${pct}%
+                                            </div>
+                                            <div class="training-progress-bar" style="height:4px; width:120px; display:inline-block; vertical-align:middle;">
+                                                <div class="training-progress-fill" style="width: ${pct}%; height:100%; background:var(--accent-cyan);"></div>
+                                            </div>
+                                        `;
+                                    } else if (status === "failed_validation") {
+                                        const wr = p.win_rate ? (p.win_rate * 100).toFixed(1) : "0.0";
+                                        progressCell.innerHTML = `
+                                            <span class="tag-model" style="background:rgba(255,149,0,0.1);color:#FF9500;border-color:rgba(255,149,0,0.2);cursor:help;" title="${p.message || ''}">
+                                                ⚠️ توقف: WR=${wr}%
+                                            </span>
+                                        `;
+                                    } else if (status === "completed") {
+                                        progressCell.innerHTML = `<span style="font-size:11px; color:var(--text-muted);">آموزش موفق</span>`;
+                                        // Refresh the whole screener to update action buttons since it's now completed!
+                                        setTimeout(runScreenerScan, 1000);
+                                    }
+                                }
+                            }
+                        });
+                    });
+                }
             } catch (err) {
                 console.error("Error reading training status:", err);
             }
@@ -2225,7 +2815,7 @@
                 const response = await fetch(`${API_BASE}/api/remove_symbol`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbol: cleanSym, delete_model: true })
+                    body: JSON.stringify({ symbol: cleanSym, delete_model: false })
                 });
                 const res = await response.json();
                 showToast(res.message);
@@ -2331,7 +2921,7 @@
                         pnl = 100.0 * (pct / 100.0);
                     }
 
-                    const fullyExited = s.fullyExited !== false;
+                    const deciding_model = matchingEntry.deciding_model || (matchingEntry.diagnostic_report ? matchingEntry.diagnostic_report.deciding_model : null) || "Ensemble";
 
                     if (!fullyExited) {
                         // This is a partial exit (TP1)
@@ -2346,6 +2936,7 @@
                             entryPrice: matchingEntry.price,
                             exitPrice: s.price,
                             leverage: matchingEntry.leverage || 10,
+                            deciding_model: deciding_model,
                             pnl: pnl,
                             exitReason: s.exitReason || "TP1",
                             diagnostic_report: s.diagnostic_report || matchingEntry.diagnostic_report || null
@@ -2373,6 +2964,7 @@
                                 entryPrice: matchingEntry.price,
                                 exitPrice: s.price,
                                 leverage: matchingEntry.leverage || 10,
+                                deciding_model: deciding_model,
                                 pnl: pnl,
                                 exitReason: s.exitReason || "TP",
                                 diagnostic_report: s.diagnostic_report || matchingEntry.diagnostic_report || null
@@ -2452,6 +3044,7 @@
                         <td style="font-family: 'Inter'; font-weight: 600;">$${t.entryPrice.toFixed(6)}</td>
                         <td style="font-family: 'Inter'; font-weight: 600;">$${t.exitPrice.toFixed(6)}</td>
                         <td>${t.leverage}x</td>
+                        <td style="font-family: 'Inter'; font-weight: bold; color: var(--accent-cyan);">${t.deciding_model || 'Ensemble'}</td>
                         <td class="${pnlClass}" style="font-weight: bold; font-family: 'Inter';">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(4)} USDT</td>
                         <td>
                             <button onclick="showTradeReport(${i})" class="nav-btn" style="padding: 4px 8px; font-size: 11px; margin: 0; background: rgba(0, 223, 216, 0.1); border: 1px solid rgba(0, 223, 216, 0.2); color: var(--accent-cyan); border-radius: 4px; cursor: pointer; font-weight: 600;">📋 جزئیات</button>
@@ -2460,7 +3053,7 @@
                     tbody.appendChild(tr);
                 });
             } else {
-                tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">هیچ معامله‌ای یافت نشد.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">هیچ معامله‌ای یافت نشد.</td></tr>`;
             }
         }
 
@@ -2476,7 +3069,7 @@
                 "LINEAR_REGRESSION_TRENDLINE", "DYNAMIC_RISK_SIZING", "TP1_EXIT_LOGIC",
                 "TP2_EXIT_LOGIC", "ASYNC_QUEUE_INGESTION", "FALLING_KNIFE_PROTECTION",
                 "ORDER_TTL_EXPIRATION", "DEX_FLOW_CONFIRMATION", "SPREAD_THRESHOLD_BPS",
-                "MAKER_POST_ONLY", "DEX_FLOW_BALANCE_FIRST_30S", "DEX_FLOW_BALANCE_LAST_30S"
+                "MAKER_POST_ONLY"
             ];
             const bypassed = [];
             filterIds.forEach(id => {
@@ -2519,7 +3112,7 @@
                 "LINEAR_REGRESSION_TRENDLINE", "DYNAMIC_RISK_SIZING", "TP1_EXIT_LOGIC",
                 "TP2_EXIT_LOGIC", "ASYNC_QUEUE_INGESTION", "FALLING_KNIFE_PROTECTION",
                 "ORDER_TTL_EXPIRATION", "DEX_FLOW_CONFIRMATION", "SPREAD_THRESHOLD_BPS",
-                "MAKER_POST_ONLY", "DEX_FLOW_BALANCE_FIRST_30S", "DEX_FLOW_BALANCE_LAST_30S"
+                "MAKER_POST_ONLY"
             ];
             filterIds.forEach(id => {
                 const el = document.getElementById("f-" + id.toLowerCase().replace(/_/g, "-"));
@@ -2658,14 +3251,12 @@
                     { id: "ORDER_TTL_EXPIRATION", name: "انقضای سفارشات لیمیت معلق (ORDER_TTL_EXPIRATION)" },
                     { id: "DEX_FLOW_CONFIRMATION", name: "تایید نقدینگی نهنگ‌های زنجیره (DEX_FLOW_CONFIRMATION)" },
                     { id: "SPREAD_THRESHOLD_BPS", name: "آستانه اسپرد اردر بوک صرافی (SPREAD_THRESHOLD_BPS)" },
-                    { id: "MAKER_POST_ONLY", name: "الزام سفارش‌گذاری Maker اردر (MAKER_POST_ONLY)" },
-                    { id: "DEX_FLOW_BALANCE_FIRST_30S", name: "تراز جریان ۳۰ ثانیه اول (DEX_FLOW_BALANCE_FIRST_30S)" },
-                    { id: "DEX_FLOW_BALANCE_LAST_30S", name: "تراز جریان ۳۰ ثانیه آخر (DEX_FLOW_BALANCE_LAST_30S)" }
+                    { id: "MAKER_POST_ONLY", name: "الزام سفارش‌گذاری Maker اردر (MAKER_POST_ONLY)" }
                 ];
 
                 let filtersHtml = `
                     <div style="grid-column: span 2; margin-top: 10px; border-top: 1px solid var(--card-border); padding-top: 15px; text-align: right;">
-                        <strong style="color: var(--accent-cyan); display: block; margin-bottom: 12px; font-size: 13px;">🛡️ وضعیت ۲۹ فیلتر و قوانین در زمان معامله</strong>
+                        <strong style="color: var(--accent-cyan); display: block; margin-bottom: 12px; font-size: 13px;">🛡️ وضعیت ۲۷ فیلتر و قوانین در زمان معامله</strong>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                 `;
 
@@ -2711,7 +3302,7 @@
             } else {
                 diagHtml = `
                     <div style="padding: 16px; background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 8px; margin-top: 15px; text-align: center; color: var(--text-muted); font-size: 12px;">
-                        ⚠️ گزارش داده‌های زنده و پارامترهای ۲۹ گانه ریاضی فیلتر در لحظه ورود برای این معامله شبیه‌سازی‌شده قدیمی ثبت نگردیده است. اطلاعات اولیه ترید در جدول بالا در دسترس است.
+                        ⚠️ گزارش داده‌های زنده و پارامترهای ۲۷ گانه ریاضی فیلتر در لحظه ورود برای این معامله شبیه‌سازی‌شده قدیمی ثبت نگردیده است. اطلاعات اولیه ترید در جدول بالا در دسترس است.
                     </div>
                 `;
             }
@@ -2848,7 +3439,7 @@
 سطح حد سود (Take Profit): ${tpStr}
 \n`;
 
-                text += `[🛡️ ممیزی و وضعیت ۲۹ قانون فیلتر معاملاتی]
+                text += `[🛡️ ممیزی و وضعیت ۲۷ قانون فیلتر معاملاتی]
 `;
                 const allFilters = [
                     { id: "LOB_DATA_REQUIRED", name: "الزام داده اردر بوک (LOB_DATA_REQUIRED)" },
@@ -2877,9 +3468,7 @@
                     { id: "ORDER_TTL_EXPIRATION", name: "انقضای سفارشات لیمیت معلق (ORDER_TTL_EXPIRATION)" },
                     { id: "DEX_FLOW_CONFIRMATION", name: "تایید نقدینگی نهنگ‌های زنجیره (DEX_FLOW_CONFIRMATION)" },
                     { id: "SPREAD_THRESHOLD_BPS", name: "آستانه اسپرد اردر بوک صرافی (SPREAD_THRESHOLD_BPS)" },
-                    { id: "MAKER_POST_ONLY", name: "الزام سفارش‌گذاری Maker اردر (MAKER_POST_ONLY)" },
-                    { id: "DEX_FLOW_BALANCE_FIRST_30S", name: "تراز جریان ۳۰ ثانیه اول (DEX_FLOW_BALANCE_FIRST_30S)" },
-                    { id: "DEX_FLOW_BALANCE_LAST_30S", name: "تراز جریان ۳۰ ثانیه آخر (DEX_FLOW_BALANCE_LAST_30S)" }
+                    { id: "MAKER_POST_ONLY", name: "الزام سفارش‌گذاری Maker اردر (MAKER_POST_ONLY)" }
                 ];
                 allFilters.forEach((f, idx) => {
                     let isChecked = false;
@@ -2912,10 +3501,420 @@
             document.body.removeChild(link);
         }
 
+        // AI Analyzer triggering and status updates
+        async function startAnalysis() {
+            const symbol = document.getElementById("analysis-symbol-select").value;
+            if (!symbol) {
+                showToast("لطفاً ابتدا یک جفت ارز انتخاب کنید.", true);
+                return;
+            }
+            
+            try {
+                document.getElementById("analysis-running-panel").style.display = "block";
+                document.getElementById("analysis-results-panel").style.display = "none";
+                document.getElementById("analysis-console").innerHTML = "Initializing analysis runner...\n";
+                
+                const marketType = document.getElementById("analysis-market-type").value;
+                const daysBack = parseInt(document.getElementById("analysis-days-back").value);
+                
+                const response = await fetch(`${API_BASE}/api/run_analyzer`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        symbol: symbol,
+                        market_type: marketType,
+                        days_back: daysBack
+                    })
+                });
+                const res = await response.json();
+                if (res.success) {
+                    showToast(res.message);
+                    pollAnalysisStatus(symbol);
+                } else {
+                    showToast(res.message, true);
+                    document.getElementById("analysis-running-panel").style.display = "none";
+                }
+            } catch (err) {
+                showToast("خطا در تریگر کردن آنالیزور.", true);
+                document.getElementById("analysis-running-panel").style.display = "none";
+            }
+        }
+
+        async function pollAnalysisStatus(symbol) {
+            const intervalId = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/api/analysis_status?symbol=${symbol}`);
+                    const data = await response.json();
+                    
+                    const consoleEl = document.getElementById("analysis-console");
+                    if (consoleEl && data.logs) {
+                        consoleEl.innerHTML = data.logs.join("\n");
+                        consoleEl.scrollTop = consoleEl.scrollHeight;
+                    }
+                    
+                    if (data.status === "completed") {
+                        clearInterval(intervalId);
+                        document.getElementById("analysis-running-panel").style.display = "none";
+                        document.getElementById("analysis-results-panel").style.display = "flex";
+                        
+                        const rep = data.report;
+                        if (rep) {
+                            document.getElementById("an-total-return").innerText = (rep.backtest.total_return * 100).toFixed(2) + "%";
+                            document.getElementById("an-total-return").className = rep.backtest.total_return >= 0 ? "value-green" : "value-red";
+                            document.getElementById("an-sharpe-ratio").innerText = rep.backtest.sharpe_ratio.toFixed(3);
+                            document.getElementById("an-sortino-ratio").innerText = rep.backtest.sortino_ratio.toFixed(3);
+                            document.getElementById("an-max-drawdown").innerText = (rep.backtest.max_drawdown * 100).toFixed(2) + "%";
+                            document.getElementById("an-profit-factor").innerText = rep.backtest.profit_factor.toFixed(2);
+                            document.getElementById("an-win-rate").innerText = (rep.backtest.win_rate * 100).toFixed(1) + "%";
+                            
+                            document.getElementById("an-comp-vol-sharpe").innerText = rep.comparison.volume_bars.sharpe.toFixed(3);
+                            document.getElementById("an-comp-time-sharpe").innerText = rep.comparison.time_bars.sharpe.toFixed(3);
+                            
+                            const diff = (rep.comparison.volume_bars.return - rep.comparison.time_bars.return) * 100;
+                            document.getElementById("an-comp-return-diff").innerText = (diff >= 0 ? "+" : "") + diff.toFixed(2) + "%";
+                            document.getElementById("an-comp-return-diff").className = diff >= 0 ? "value-green" : "value-red";
+                            document.getElementById("an-comp-winner-val").innerText = rep.comparison.winner === "Volume Bars" ? "Volume Bars (فرامینی)" : "Time Bars (خطی زمان)";
+                            
+                            const cleanSym = symbol.split('/')[0].toLowerCase();
+                            const chartImg = document.getElementById("an-equity-chart-img");
+                            chartImg.src = `${API_BASE}/analysis/plots/${cleanSym}_backtest_analysis.png?t=${new Date().getTime()}`;
+                            chartImg.style.display = "inline-block";
+                            
+                            document.getElementById("an-download-report-btn").href = `${API_BASE}/analysis/report_${cleanSym}.html`;
+                            
+                            const diagBody = document.getElementById("analysis-diagnostics-body");
+                            diagBody.innerHTML = "";
+                            if (rep.diagnostics && rep.diagnostics.length > 0) {
+                                rep.diagnostics.forEach(d => {
+                                    const tr = document.createElement("tr");
+                                    let levelColor = "var(--neon-green)";
+                                    if (d.level === "WARNING") levelColor = "orange";
+                                    else if (d.level === "ERROR") levelColor = "var(--neon-red)";
+                                    
+                                    tr.innerHTML = `
+                                        <td style="padding:10px;"><span class="badge" style="background:${levelColor}1a; color:${levelColor}; border:1px solid ${levelColor}4d; padding:2px 6px; border-radius:4px; font-size:10px;">${d.level}</span></td>
+                                        <td style="padding:10px; font-weight:bold; text-align:right;">${d.metric}</td>
+                                        <td style="padding:10px;" class="value-cyan">${d.value}</td>
+                                        <td style="padding:10px; text-align:right;">${d.desc}</td>
+                                        <td style="padding:10px; color:#a5a5cd; font-size:12px; text-align:right;">${d.suggestion}</td>
+                                    `;
+                                    diagBody.appendChild(tr);
+                                });
+                            }
+                        }
+                        showToast("فرآیند آنالیز هوش مصنوعی با موفقیت پایان یافت.");
+                    } else if (data.status.startsWith("error")) {
+                        clearInterval(intervalId);
+                        document.getElementById("analysis-running-panel").style.display = "none";
+                        showToast("خطا در اجرای آنالیزور رخ داد: " + data.status, true);
+                    }
+                } catch (err) {
+                    console.error("Error polling analyzer status:", err);
+                }
+            }, 2000);
+        }
+
+        // Altcoin Screener Functions
+        let isScanningScreener = false;
+        let _lastScreenerSignature = null;  // برای تشخیص تغییر داده‌ها
+
+        function _buildScreenerSignature(coins) {
+            // یک امضای کوتاه از نماد و رتبه هر کوین برای مقایسه تغییرات
+            return coins.map((c, i) => `${i}:${c.symbol}:${c.has_model}:${c.is_active}:${c.is_training}`).join('|');
+        }
+
+        function _setScreenerRefreshIndicator(loading) {
+            let dot = document.getElementById('screener-refresh-dot');
+            if (!dot) return;
+            dot.style.opacity = loading ? '1' : '0';
+        }
+
+        async function runScreenerScan() {
+            if (isScanningScreener) return;
+            isScanningScreener = true;
+
+            const tbody = document.getElementById("screener-table-body");
+            const isFirstLoad = tbody.children.length === 0 || tbody.querySelector('[colspan]');
+
+            // فقط در اولین بار پیام لودینگ نشان بده
+            if (isFirstLoad) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" style="text-align: center; color: var(--accent-cyan); padding: 30px; font-weight: bold; direction: rtl;">
+                            🔄 در حال دریافت داده‌ها و اسکن نقدینگی صرافی... (احتمالاً چند ثانیه زمان می‌برد)
+                        </td>
+                    </tr>
+                `;
+            } else {
+                // رفرش پس‌زمینه: فقط یک نشانگر کوچک نشان بده
+                _setScreenerRefreshIndicator(true);
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/screener`);
+                const data = await response.json();
+
+                const coinsRaw = data.altcoins || [];
+                if (coinsRaw.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="8" style="text-align: center; color: var(--neon-red); padding: 30px; font-weight: bold; direction: rtl;">
+                                ⚠️ هیچ جفت‌ارزی توسط اسکنر یافت نشد یا مشکلی در ارتباط با صرافی رخ داد.
+                            </td>
+                        </tr>
+                    `;
+                    _lastScreenerSignature = null;
+                    isScanningScreener = false;
+                    return;
+                }
+
+                // مرتب‌سازی نزولی بر اساس تغییرات ۲۴ ساعته (بیشترین رشد اول)
+                const coins = [...coinsRaw].sort((a, b) => (b.percentage || 0) - (a.percentage || 0));
+
+                const newSig = _buildScreenerSignature(coins);
+                if (newSig === _lastScreenerSignature && !isFirstLoad) {
+                    // داده‌ها تغییر نکرده‌اند — لیست را دست نزن
+                    _setScreenerRefreshIndicator(false);
+                    isScanningScreener = false;
+                    return;
+                }
+                _lastScreenerSignature = newSig;
+
+                tbody.innerHTML = "";
+                coins.forEach((c, idx) => {
+                    const tr = document.createElement("tr");
+                    
+                    const changePct = c.percentage || 0.0;
+                    const changeClass = changePct >= 0 ? "value-green" : "value-red";
+                    const changeSign = changePct >= 0 ? "+" : "";
+                    
+                    // قالب‌بندی حجم به صورت میلیون دلار یا کیلو دلار
+                    let volStr = "";
+                    if (c.quoteVolume >= 1000000) {
+                        volStr = `$${(c.quoteVolume / 1000000).toFixed(2)}M`;
+                    } else if (c.quoteVolume >= 1000) {
+                        volStr = `$${(c.quoteVolume / 1000).toFixed(2)}K`;
+                    } else {
+                        volStr = `$${c.quoteVolume.toFixed(2)}`;
+                    }
+                    
+                    // بررسی وضعیت مدل
+                    let modelStatusHtml = "";
+                    if (c.has_model) {
+                        modelStatusHtml = `
+                            <span class="tag-model" style="background:rgba(52,199,89,0.15);color:#34C759;border-color:rgba(52,199,89,0.3);font-weight:bold;">
+                                🟢 مدل موجود است
+                            </span>
+                        `;
+                    } else {
+                        modelStatusHtml = `
+                            <span class="tag-model" style="background:rgba(255,77,79,0.1);color:#ff4d4f;border-color:rgba(255,77,79,0.2);">
+                                🔴 فاقد مدل
+                            </span>
+                        `;
+                    }
+                    
+                    // بررسی وضعیت فعال/غیرفعال بودن در ربات
+                    let tradeStatusHtml = "";
+                    if (c.is_active) {
+                        tradeStatusHtml = `
+                            <span class="asset-status status-long" style="padding: 2px 8px; font-size:11px;">ترید فعال</span>
+                        `;
+                    } else {
+                        tradeStatusHtml = `
+                            <span class="asset-status status-flat" style="padding: 2px 8px; font-size:11px;">غیرفعال</span>
+                        `;
+                    }
+                    
+                    // بررسی پیشرفت آموزش
+                    let trainingProgressHtml = "";
+                    if (c.is_training) {
+                        const pct = c.progress ? c.progress.percentage : 0;
+                        trainingProgressHtml = `
+                            <div style="font-size:11px; margin-bottom:4px; color:var(--accent-cyan); font-weight:bold;">
+                                🧠 آموزش فاز ${pct >= 40 ? '۲' : '۱'}: ${pct}%
+                            </div>
+                            <div class="training-progress-bar" style="height:4px; width:120px; display:inline-block; vertical-align:middle;">
+                                <div class="training-progress-fill" style="width: ${pct}%; height:100%; background:var(--accent-cyan);"></div>
+                            </div>
+                        `;
+                    } else if (c.progress && c.progress.status === "failed_validation") {
+                        const wr = c.progress.win_rate ? (c.progress.win_rate * 100).toFixed(1) : "0.0";
+                        trainingProgressHtml = `
+                            <span class="tag-model" style="background:rgba(255,149,0,0.1);color:#FF9500;border-color:rgba(255,149,0,0.2);cursor:help;" title="${c.progress.message || ''}">
+                                ⚠️ توقف: WR=${wr}%
+                            </span>
+                        `;
+                    } else if (c.progress && (c.progress.status === "error" || (typeof c.progress.status === 'string' && c.progress.status.startsWith('error')))) {
+                        const errMsg = c.progress.message || c.progress.status || 'خطای نامشخص';
+                        trainingProgressHtml = `
+                            <span class="tag-model" style="background:rgba(255,77,79,0.1);color:#ff4d4f;border-color:rgba(255,77,79,0.3);cursor:help;font-size:10px;" title="${errMsg}">
+                                ❌ خطا در آموزش
+                            </span>
+                        `;
+                    } else if (c.progress && c.progress.status === "completed") {
+                        trainingProgressHtml = `<span style="font-size:11px; color:var(--text-muted);">آموزش موفق</span>`;
+                    } else {
+                        trainingProgressHtml = `<span style="font-size:11px; color:var(--text-muted);">-</span>`;
+                    }
+
+                    
+                    // دکمه‌های عملیات
+                    let actionButtonHtml = "";
+                    if (c.is_active) {
+                        actionButtonHtml = `
+                            <button onclick="removeScreenerSymbol('${c.symbol}')" class="btn-submit" style="background:rgba(255,77,79,0.1); border:1px solid rgba(255,77,79,0.2); color:#ff4d4f; padding:4px 8px; font-size:11px; cursor:pointer;">
+                                ❌ حذف از ترید
+                            </button>
+                        `;
+                    } else {
+                        if (c.is_training) {
+                            actionButtonHtml = `
+                                <button onclick="stopScreenerTraining('${c.symbol}')" class="btn-submit" style="background:rgba(255,77,79,0.15); border:1px solid rgba(255,77,79,0.3); color:#ff4d4f; padding:4px 8px; font-size:11px; cursor:pointer;">
+                                    🛑 توقف آموزش
+                                </button>
+                            `;
+                        } else if (c.has_model) {
+                            actionButtonHtml = `
+                                <button onclick="activateScreenerSymbol('${c.symbol}')" class="btn-submit" style="background:rgba(52,199,89,0.15); border:1px solid rgba(52,199,89,0.3); color:#34C759; padding:4px 8px; font-size:11px; cursor:pointer;">
+                                    ➕ فعال‌سازی فوری
+                                </button>
+                            `;
+                        } else {
+                            actionButtonHtml = `
+                                <button onclick="startScreenerTraining('${c.symbol}')" class="btn-submit" style="padding:4px 8px; font-size:11px; cursor:pointer;">
+                                    🧠 شروع آموزش
+                                </button>
+                            `;
+                        }
+                    }
+                    
+                    tr.innerHTML = `
+                        <td style="font-weight:700; font-family:'Inter';">${idx + 1}</td>
+                        <td style="font-weight:700; font-family:'Inter'; text-align:right;">${c.symbol}</td>
+                        <td style="font-family:'Inter';">${volStr}</td>
+                        <td class="${changeClass}" style="font-family:'Inter'; font-weight:bold;">${changeSign}${changePct.toFixed(2)}%</td>
+                        <td style="font-family:'Inter'; font-weight:bold;">$${c.close.toFixed(6)}</td>
+                        <td>
+                            ${modelStatusHtml}
+                            <div style="margin-top:4px;">${trainingProgressHtml}</div>
+                        </td>
+                        <td>${tradeStatusHtml}</td>
+                        <td>${actionButtonHtml}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error("Error running screener scan:", err);
+                // فقط اگر جدول خالی است خطا را نشان بده، وگرنه لیست قدیمی را حفظ کن
+                if (tbody.children.length === 0 || tbody.querySelector('[colspan]')) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="8" style="text-align: center; color: var(--neon-red); padding: 30px; font-weight: bold; direction: rtl;">
+                                ❌ خطایی در انجام اسکن نقدینگی رخ داد: ${err.message}
+                            </td>
+                        </tr>
+                    `;
+                }
+            } finally {
+                isScanningScreener = false;
+                _setScreenerRefreshIndicator(false);
+            }
+        }
+
+        async function activateScreenerSymbol(symbol) {
+            try {
+                showToast(`در حال فعال‌سازی جفت ارز ${symbol}...`);
+                const response = await fetch(`${API_BASE}/api/add_symbol`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol, resume: false })
+                });
+                const res = await response.json();
+                if (res.success) {
+                    showToast(res.message);
+                    runScreenerScan();
+                    updateStatus();
+                } else {
+                    showToast(res.message, true);
+                }
+            } catch (err) {
+                showToast("خطا در فعال‌سازی جفت ارز رخ داد.", true);
+            }
+        }
+
+        async function removeScreenerSymbol(symbol) {
+            if (!confirm(`آیا از حذف جفت ارز ${symbol} از لیست ترید فعال اطمینان دارید؟`)) return;
+            try {
+                showToast(`در حال حذف جفت ارز ${symbol}...`);
+                const response = await fetch(`${API_BASE}/api/remove_symbol`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol, delete_model: false })
+                });
+                const res = await response.json();
+                if (res.success) {
+                    showToast(res.message);
+                    runScreenerScan();
+                    updateStatus();
+                } else {
+                    showToast(res.message, true);
+                }
+            } catch (err) {
+                showToast("خطا در حذف جفت ارز رخ داد.", true);
+            }
+        }
+
+        async function startScreenerTraining(symbol) {
+            try {
+                showToast(`شروع فرآیند آموزش ۲ فازه برای ${symbol}...`);
+                const response = await fetch(`${API_BASE}/api/add_symbol`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol, steps: 200000, resume: false })
+                });
+                const res = await response.json();
+                if (res.success) {
+                    showToast(res.message);
+                    runScreenerScan();
+                    fetchTrainingStatus();
+                } else {
+                    showToast(res.message, true);
+                }
+            } catch (err) {
+                showToast("خطا در شروع آموزش جفت ارز رخ داد.", true);
+            }
+        }
+
+        async function stopScreenerTraining(symbol) {
+            if (!confirm(`آیا از توقف فرآیند آموزش برای ${symbol} اطمینان دارید؟`)) return;
+            try {
+                showToast(`در حال توقف آموزش جفت ارز ${symbol}...`);
+                const response = await fetch(`${API_BASE}/api/remove_symbol`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol, delete_model: false })
+                });
+                const res = await response.json();
+                if (res.success) {
+                    showToast(res.message);
+                    runScreenerScan();
+                    updateStatus();
+                } else {
+                    showToast(res.message, true);
+                }
+            } catch (err) {
+                showToast("خطا در توقف آموزش جفت ارز رخ داد.", true);
+            }
+        }
+
         // Initial setup
         window.settingsLoaded = false;
         window.statusRequestId = 0;  // شناسه‌ی درخواست برای جلوگیری از race condition (پاسخ‌های قدیمی را نادیده می‌گیریم)
         bindFilterCheckboxes();
+        
+        // Initialize theme toggle button label
+        updateThemeButton(localStorage.getItem('theme') || 'light');
         
         // Handle custom learning rate display toggle
         const trainLrEl = document.getElementById("train-lr");

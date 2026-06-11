@@ -114,6 +114,8 @@ class HybridEngine:
     def feed_trade(self, symbol: str, price: float, amount: float, side: Literal["buy", "sell"], timestamp: int) -> None:
         """تغذیه معاملات مارکتی نهایی شده صرافی به جریان ردیاب معاملات فعال"""
         self.detector.add_trade(symbol, price, amount, side, timestamp)
+        if hasattr(self, "yoyo") and self.yoyo:
+            self.yoyo.feed_trade(symbol, price, amount, side, timestamp)
 
     def feed_order_book(self, symbol: str, bids: List[List[float]], asks: List[List[float]], timestamp: int) -> None:
         """تغذیه زمان واقعی دفترچه سفارشات صرافی و ذخیره‌سازی خروجی تحلیل فریب و تاییدیه روند"""
@@ -122,22 +124,8 @@ class HybridEngine:
             self.latest_lob_results[symbol] = result
 
     def feed_dex_trade(self, symbol: str, side: Literal["buy", "sell"], amount_usdt: float) -> None:
-        """دریافت معاملات زنجیره‌ای صرافی غیرمتمرکز (DEX) سولانا برای پایش جریان نقدینگی بلاکچین"""
-        if symbol not in self.recent_dex_trades:
-            self.recent_dex_trades[symbol] = deque()
-            
-        now_ms = int(time.time() * 1000)
-        self.recent_dex_trades[symbol].append({
-            "timestamp": now_ms,
-            "side": side,
-            "amount": amount_usdt
-        })
-        
-        # پاک‌سازی داده‌های قدیمی زنجیره‌ای (۵ دقیقه برای پایش فیلترهای ۲۸ و ۲۹ نقدینگی زنجیره‌ای)
-        cutoff = now_ms - 300000  # ۳۰۰ ثانیه یا ۵ دقیقه
-        trades = self.recent_dex_trades[symbol]
-        while trades and trades[0]["timestamp"] < cutoff:
-            trades.popleft()
+        """دریافت معاملات زنجیره‌ای صرافی غیرمتمرکز (DEX) سولانا برای پایش جریان نقدینگی بلاکچین - غیرفعال شده"""
+        pass
 
     def _evaluate_ai_agent(self, trade: dict) -> Tuple[bool, float, float]:
         """
@@ -239,57 +227,17 @@ class HybridEngine:
         filter_results["ASYNC_QUEUE_INGESTION"] = True
         filter_results["FALLING_KNIFE_PROTECTION"] = True
         
-        # فیلتر ۲۴ و ۲۵: انقضای اوردر و تایید جریان تراکنش DEX
+        # فیلتر ۲۴ و ۲۵: انقضای اوردر و تایید جریان تراکنش DEX - بای‌پس شده
         filter_results["ORDER_TTL_EXPIRATION"] = True
-        filter_results["DEX_FLOW_CONFIRMATION"] = (len(dex_trades) > 0)
+        filter_results["DEX_FLOW_CONFIRMATION"] = True
         
         # فیلتر ۲۶ و ۲۷: اسپرد بازار و سفارش لیمیت PostOnly
         filter_results["SPREAD_THRESHOLD_BPS"] = True
         filter_results["MAKER_POST_ONLY"] = True
         
-        # فیلتر ۲۸ و ۲۹: فیلترهای جدید کنترل تراز جریان نقدینگی زنجیره‌ای برای معاملات LONG و SHORT
-        if side == "long":
-            # قانون تراز جریان برای LONG:
-            if net_first_30s > 0.0 and net_last_30s > 0.0:
-                # ۱. روند صعودی مستمر -> تایید
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = True
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = True
-            elif net_first_30s <= 0.0 and net_last_30s <= 0.0:
-                # ۲. روند ریزشی -> رد
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = False
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = False
-            elif net_first_30s <= 0.0 and net_last_30s > 0.0:
-                # ۳. برگشت صعودی قدرتمند زمان‌کوتاه -> تایید
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = True
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = True
-            elif net_first_30s > 0.0 and net_last_30s <= 0.0:
-                # ۴. تضعیف شدید تقاضا -> رد
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = False
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = False
-            else:
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = (net_first_30s > 0.0)
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = (net_last_30s > 0.0)
-        else:
-            # قانون تراز جریان برای SHORT:
-            if net_first_30s <= 0.0 and net_last_30s <= 0.0:
-                # ۱. روند نزولی مستمر -> تایید
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = True
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = True
-            elif net_first_30s > 0.0 and net_last_30s > 0.0:
-                # ۲. روند صعودی -> رد
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = False
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = False
-            elif net_first_30s > 0.0 and net_last_30s <= 0.0:
-                # ۳. برگشت نزولی سریع -> تایید
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = True
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = True
-            elif net_first_30s <= 0.0 and net_last_30s > 0.0:
-                # ۴. تضعیف فروشندگان -> رد
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = False
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = False
-            else:
-                filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = (net_first_30s <= 0.0)
-                filter_results["DEX_FLOW_BALANCE_LAST_30S"] = (net_last_30s <= 0.0)
+        # فیلتر ۲۸ و ۲۹: فیلترهای جدید کنترل تراز جریان نقدینگی زنجیره‌ای برای معاملات LONG و SHORT - بای‌پس شده
+        filter_results["DEX_FLOW_BALANCE_FIRST_30S"] = True
+        filter_results["DEX_FLOW_BALANCE_LAST_30S"] = True
 
         # ۴. ذخیره نتایج تمام فیلترها در ساختار تشخیصی معامله جهت لاگ یا دیتابیس
         if "yoyo_data" in trade_proposal and trade_proposal["yoyo_data"]:

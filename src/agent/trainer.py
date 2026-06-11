@@ -92,9 +92,9 @@ class ProgressCallback(BaseCallback):
 
 
 def lr_schedule(progress_remaining: float) -> float:
-    """Linear learning rate schedule from 3e-4 to 5e-5."""
-    initial_lr = 3e-4
-    final_lr = 5e-5
+    """Linear learning rate schedule from 1.5e-4 to 2e-5."""
+    initial_lr = 1.5e-4
+    final_lr = 2e-5
     return final_lr + (initial_lr - final_lr) * progress_remaining
 
 
@@ -213,6 +213,17 @@ def train_agent(
         final_path = os.path.join(model_save_dir, f"{model_name}_{algo_name}_final.zip")
         best_path = os.path.join(model_save_dir, f"{model_name}_{algo_name}_best.zip")
 
+        # تلاش برای بارگذاری تنظیمات هایپرپارامترها از فایل پیکربندی نماد
+        config_path = os.path.join(model_save_dir, f"config_{symbol_clean.lower()}.json")
+        config_data = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config_data = json.load(f)
+                print(f"[Agent Trainer] Dynamic config loaded from {config_path}")
+            except Exception as e:
+                print(f"[Agent Trainer] Warning loading config file: {e}")
+
         if resume:
             if os.path.exists(final_path):
                 model_path = final_path
@@ -222,6 +233,18 @@ def train_agent(
             if model_path:
                 print(f"[Agent Trainer] Resuming {algo_name.upper()} model from {model_path}...")
                 custom_objects = {"learning_rate": lr_input}
+                if algo_name == "ppo":
+                    # اورراید کردن پارامترهای آموزش در فاز از سرگیری آموزش از روی تنظیمات
+                    if config_data:
+                        custom_objects["vf_coef"] = config_data.get("vf_coef", 0.8)
+                        custom_objects["clip_range"] = config_data.get("clip_range", 0.25)
+                        custom_objects["ent_coef"] = config_data.get("ent_coef", 0.015)
+                        custom_objects["gamma"] = config_data.get("gamma", 0.98)
+                        custom_objects["gae_lambda"] = config_data.get("gae_lambda", 0.95)
+                        custom_objects["n_steps"] = config_data.get("n_steps", 2048)
+                        custom_objects["batch_size"] = config_data.get("batch_size", 256)
+                        print(f"[Agent Trainer] Resuming PPO with dynamic hyperparameters from config.")
+                
                 try:
                     if algo_name == "ppo":
                         if USING_RECURRENT:
@@ -241,14 +264,14 @@ def train_agent(
             if algo_name == "ppo":
                 hyperparams = {
                     "learning_rate": lr_input,
-                    "n_steps": 2048,
-                    "batch_size": 128,
-                    "n_epochs": 10,
-                    "gamma": 0.98,
-                    "gae_lambda": 0.95,
-                    "clip_range": 0.2,
-                    "ent_coef": 0.01,
-                    "vf_coef": 0.5,
+                    "n_steps": config_data.get("n_steps", 2048),
+                    "batch_size": config_data.get("batch_size", 256),
+                    "n_epochs": 4,
+                    "gamma": config_data.get("gamma", 0.98),
+                    "gae_lambda": config_data.get("gae_lambda", 0.95),
+                    "clip_range": config_data.get("clip_range", 0.25),
+                    "ent_coef": config_data.get("ent_coef", 0.015),
+                    "vf_coef": config_data.get("vf_coef", 0.8),
                     "max_grad_norm": 0.5,
                     "verbose": 1,
                     "tensorboard_log": tb_log_dir if HAS_TENSORBOARD else None
@@ -270,7 +293,7 @@ def train_agent(
             elif algo_name == "sac":
                 hyperparams = {
                     "learning_rate": lr_input,
-                    "buffer_size": 1000000,
+                    "buffer_size": 50000,  # محدود به حافظه VPS (1.8GB کل)
                     "batch_size": 256,
                     "tau": 0.005,
                     "gamma": 0.98,
@@ -283,7 +306,7 @@ def train_agent(
             elif algo_name == "td3":
                 hyperparams = {
                     "learning_rate": lr_input,
-                    "buffer_size": 1000000,
+                    "buffer_size": 50000,  # محدود به حافظه VPS (1.8GB کل)
                     "batch_size": 256,
                     "tau": 0.005,
                     "gamma": 0.98,
@@ -294,13 +317,65 @@ def train_agent(
                 policy_kwargs = dict(net_arch=dict(pi=[64, 64], qf=[64, 64]))
                 model = TD3("MlpPolicy", train_env, policy_kwargs=policy_kwargs, **hyperparams)
 
-        # 3. Train Phase
+        # 3. Setup WandB Logging and Callback
+        callbacks_list = [eval_callback, progress_callback]
+        use_wandb = os.getenv("USE_WANDB", "false").lower() in ["true", "1"]
+        wandb_run = None
+        
+        if use_wandb:
+            try:
+                import wandb
+                from wandb.integration.sb3 import WandbCallback
+                import inspect
+                
+                tags = ["ensemble", "volume-bars", symbol_clean.lower()]
+                run_config = hyperparams if 'hyperparams' in locals() else {}
+                
+                # بستن هرگونه ران فعال پیشین جهت جلوگیری از تداخل
+                if wandb.run is not None:
+                    wandb.run.finish()
+                
+                wandb_run = wandb.init(
+                    entity=os.getenv("WANDB_ENTITY", "ROBOCHILD"),
+                    project=f"robochild-{symbol_clean.lower()}",
+                    name=f"{model_name}_{algo_name}",
+                    config=run_config,
+                    sync_tensorboard=True,
+                    monitor_gym=True,
+                    save_code=True,
+                    tags=tags,
+                    notes=f"Sequential training of {algo_name.upper()} model for {symbol_clean}."
+                )
+                
+                sig = inspect.signature(WandbCallback.__init__)
+                callback_kwargs = {
+                    "model_save_path": model_save_dir,
+                    "model_save_freq": 10000,
+                    "verbose": 2
+                }
+                if "save_model" in sig.parameters:
+                    callback_kwargs["save_model"] = True
+                
+                wandb_callback = WandbCallback(**callback_kwargs)
+                callbacks_list.append(wandb_callback)
+                print(f"[Agent Trainer] Weights & Biases (WandB) run initialized for phase {algo_name}.")
+            except Exception as w_err:
+                print(f"[Agent Trainer] Failed to initialize WandB run: {w_err}. Proceeding without WandB callback.")
+
+        # 4. Train Phase
         model.learn(
             total_timesteps=total_timesteps,
-            callback=[eval_callback, progress_callback],
+            callback=callbacks_list,
             tb_log_name=f"{model_name}_{algo_name}",
             reset_num_timesteps=not resume
         )
+
+        if wandb_run is not None:
+            try:
+                import wandb
+                wandb.run.finish()
+            except Exception:
+                pass
 
         if progress_callback.was_aborted:
             print(f"[Agent Trainer] Training was ABORTED during phase {phase['name']}. Preserving previous models.")

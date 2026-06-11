@@ -1,0 +1,5 @@
+{
+    "take_profit_bps": 40,
+    "stop_loss_bps": 20,
+    "ensemble_threshold": 0.65
+}

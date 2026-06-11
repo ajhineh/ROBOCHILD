@@ -83,6 +83,12 @@ class PurePPOStrategy:
         self.latest_lob: Optional[dict] = None
         self.recent_dex_trades: List[dict] = []
 
+        # بافرهای تجمیع حجم متحرک برای تشخیص بسته‌شدن کندل‌های حجمی
+        self.volume_accumulators: Dict[str, float] = {sym: 0.0 for sym in symbols}
+        self.volume_ticks_history: Dict[str, List[dict]] = {sym: [] for sym in symbols}
+        self.volume_bar_completed: Dict[str, bool] = {sym: False for sym in symbols}
+        self.volume_bar_price: Dict[str, float] = {sym: 0.0 for sym in symbols}
+
         # تاریخچه سیگنال‌ها و آمارهای مالی داشبورد ربات
         self.history = {
             "signals": [],
@@ -170,6 +176,52 @@ class PurePPOStrategy:
                     self.worker_tasks[symbol] = asyncio.create_task(self._worker_loop_for_symbol(symbol))
         except Exception as e:
             logger.error(f"Error putting tick into PPO queue for {symbol}: {e}")
+
+    def feed_trade(self, symbol: str, price: float, amount: float, side: str, timestamp: int) -> None:
+        """تغذیه معاملات بازار به تجمیع‌کننده حجم لایو جهت ایجاد کندل‌های حجمی"""
+        try:
+            if symbol not in self.volume_accumulators:
+                self.volume_accumulators[symbol] = 0.0
+                self.volume_ticks_history[symbol] = []
+                self.volume_bar_completed[symbol] = False
+                self.volume_bar_price[symbol] = 0.0
+                
+            trade_val = amount * price
+            self.volume_accumulators[symbol] += trade_val
+            self.volume_ticks_history[symbol].append({
+                "price": price,
+                "amount": amount
+            })
+            
+            # آستانه حجم بر اساس نام نماد معاملاتی
+            symbol_clean = symbol.split('/')[0].lower()
+            if symbol_clean in ["popcat", "bome"]:
+                v_thresh = 50000.0
+            else:
+                v_thresh = 50000.0  # مقدار آستانه پیش‌فرض امن برای سایر جفت‌ارزها مانند SOL
+                
+            # اگر حجم انباشته شده از حد آستانه عبور کند، کندل حجمی کامل می‌شود
+            if self.volume_accumulators[symbol] >= v_thresh:
+                total_amount = sum([t["amount"] for t in self.volume_ticks_history[symbol]])
+                if total_amount > 0:
+                    avg_price = sum([t["price"] * t["amount"] for t in self.volume_ticks_history[symbol]]) / total_amount
+                else:
+                    avg_price = price
+                    
+                self.volume_bar_completed[symbol] = True
+                self.volume_bar_price[symbol] = avg_price
+                
+                logger.info(
+                    f"📦 Volume Bar Completed for {symbol} | "
+                    f"Total Volume: ${self.volume_accumulators[symbol]:,.2f} | "
+                    f"Weighted Price: ${avg_price:.6f} | AI Evaluation Activated."
+                )
+                
+                # بازنشانی بافر
+                self.volume_accumulators[symbol] = 0.0
+                self.volume_ticks_history[symbol] = []
+        except Exception as e:
+            logger.error(f"Error aggregating live volume bar for {symbol}: {e}")
 
     async def _worker_loop(self) -> None:
         """حلقه همگام‌ساز ناهمگام اصلی جهت هماهنگی حلقه‌های اختصاصی نمادها"""
@@ -263,6 +315,14 @@ class PurePPOStrategy:
         if active_trade:
             await self._monitor_position_async(symbol, price, now, active_trade)
             return
+
+        # ۴. دروازه‌بانی کندل حجمی: پیش‌بینی عصبی فقط در صورت تکمیل یک کندل حجمی انجام می‌شود
+        if not self.volume_bar_completed.get(symbol, False):
+            return
+            
+        # استفاده از قیمت میانگین وزنی کندل حجمی به جای قیمت تیک لحظه‌ای
+        price = self.volume_bar_price.get(symbol, price)
+        self.volume_bar_completed[symbol] = False
 
         # ۳. بررسی دوره استراحت (Cooldown)
         last_exit = self.last_exit_times.get(symbol, 0)
@@ -381,12 +441,19 @@ class PurePPOStrategy:
                     td3_norm = float(np.tanh(td3_action / 0.30))
                     
                     # محاسبه وزن‌های انسیبل تطبیقی
-                    weights = self.get_adaptive_weights(symbol)
-                    w_ppo = weights.get("ppo", 0.45)
+                    weights = self.get_adaptive_weights(symbol, price, now_sec)
+                    w_ppo = weights.get("ppo", 0.50)
                     w_sac = weights.get("sac", 0.30)
-                    w_td3 = weights.get("td3", 0.25)
+                    w_td3 = weights.get("td3", 0.20)
                     
                     ensemble_action = w_ppo * ppo_norm + w_sac * sac_norm + w_td3 * td3_norm
+                    
+                    # محاسبه بزرگترین سهم در تصمیم‌گیری برای تعیین مدل لیدر
+                    contrib_ppo = abs(w_ppo * ppo_norm)
+                    contrib_sac = abs(w_sac * sac_norm)
+                    contrib_td3 = abs(w_td3 * td3_norm)
+                    contribs = {"PPO": contrib_ppo, "SAC": contrib_sac, "TD3": contrib_td3}
+                    deciding_model = max(contribs, key=contribs.get)
                     
                     # ایجاد گزارش عیب‌یابی برای لاگ و وزن‌دهی انطباقی بعدی
                     diag_report = {
@@ -398,7 +465,8 @@ class PurePPOStrategy:
                         "td3_norm": td3_norm,
                         "weights": weights,
                         "ensemble_action": ensemble_action,
-                        "fallback": False
+                        "fallback": False,
+                        "deciding_model": deciding_model
                     }
                     
                     logger.info(
@@ -438,31 +506,45 @@ class PurePPOStrategy:
                     logger.error(f"❌ Error predicting old single model: {err}")
                     ppo_action = 0.0
 
+        # بارگذاری پویای آستانه تصمیم‌گیری (Threshold) از فایل تنظیمات در صورت وجود
+        symbol_clean = symbol.split('/')[0].lower()
+        config_path = os.path.join("models", f"config_{symbol_clean}.json")
+        cfg_threshold = None
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    cfg_threshold = cfg.get("ensemble_threshold")
+            except Exception as e:
+                logger.error(f"⚠️ Error reading ensemble_threshold from config: {e}")
+
         if fallback_to_ppo:
             if isinstance(models_dict, dict):
                 # فالبک برای مدل انسیبل جدید: اکشن نرمالایز شده PPO به عنوان مبنا
                 ppo_norm = float(np.tanh(ppo_action / 0.40))
                 ensemble_action = ppo_norm
-                threshold = 0.60
+                threshold = cfg_threshold if cfg_threshold is not None else 0.65
                 diag_report = {
                     "ppo_raw": ppo_action,
                     "ppo_norm": ppo_norm,
                     "ensemble_action": ensemble_action,
-                    "fallback": True
+                    "fallback": True,
+                    "deciding_model": "PPO"
                 }
                 logger.info(f"🔄 Fallback triggered: Using PPO-only normalized action {ensemble_action:+.4f} with threshold {threshold}")
             else:
                 # برای مدل‌های تک قدیمی
                 ensemble_action = ppo_action
-                threshold = 0.60 if symbol in ["POPCAT/USDT:USDT", "BOME/USDT:USDT"] else 0.25
+                threshold = cfg_threshold if cfg_threshold is not None else (0.60 if symbol in ["POPCAT/USDT:USDT", "BOME/USDT:USDT"] else 0.25)
                 diag_report = {
                     "ppo_raw": ppo_action,
                     "ensemble_action": ensemble_action,
-                    "old_model_mode": True
+                    "old_model_mode": True,
+                    "deciding_model": "PPO"
                 }
                 logger.info(f"🔄 Old Model Mode: Using PPO raw action {ensemble_action:+.4f} with threshold {threshold}")
         else:
-            threshold = 0.60
+            threshold = cfg_threshold if cfg_threshold is not None else 0.65
 
         # ۷. ارزیابی حد آستانه ورود سیگنال (Trigger Threshold)
         adjusted_action = ensemble_action
@@ -471,20 +553,105 @@ class PurePPOStrategy:
             side: Literal["long", "short"] = "long" if adjusted_action > 0 else "short"
             await self._trigger_ppo_trade(symbol, price, side, adjusted_action, now, diag_report)
 
-    def get_adaptive_weights(self, symbol: str) -> Dict[str, float]:
+    def _detect_market_regime(self, symbol: str, current_price: float, now_sec: float) -> str:
         """
-        محاسبه داینامیک وزن‌های Ensemble بر اساس عملکرد تاریخی مدل‌ها در ۱۴ تا ۳۰ روز گذشته.
-        این متد با تحلیل میزان همسویی جهت پیش‌بینی‌های انفرادی هر الگوریتم با سود/زیان معاملات بسته شده،
-        وزن بهینه اختصاصی جفت‌ارز را استخراج می‌کند.
+        تشخیص رژیم بازار بر اساس نوسانات استاندارد و جهت روند در یک بازه ۳۰ دقیقه‌ای.
+        خروجی‌ها:
+        - "stable_trend": نوسان کم، جهت روند قوی (مناسب PPO)
+        - "choppy_range": نوسان بالا، بدون روند مشخص (مناسب SAC)
+        - "extreme_breakout": نوسان بالا و روند قوی (مناسب TD3)
+        - "default": حالت عادی
         """
-        default_weights = {"ppo": 0.45, "sac": 0.30, "td3": 0.25}
+        if not hasattr(self, "regime_prices"):
+            self.regime_prices = {}
+        if symbol not in self.regime_prices:
+            self.regime_prices[symbol] = deque()
+            
+        history = self.regime_prices[symbol]
+        history.append({"price": current_price, "timestamp": now_sec})
         
+        # نگهداری ۳۰ دقیقه آخر داده‌ها برای ارزیابی رژیم بازار
+        cutoff = now_sec - 1800.0
+        while history and history[0]["timestamp"] < cutoff:
+            history.popleft()
+            
+        # اطمینان از اینکه داده‌های موجود حداقل ۵ دقیقه (۳۰۰ ثانیه) از زمان را پوشش می‌دهند
+        if len(history) < 2 or (history[-1]["timestamp"] - history[0]["timestamp"]) < 300.0:
+            return "default"
+            
+        prices_list = [p["price"] for p in history]
+        mean_p = np.mean(prices_list)
+        std_p = np.std(prices_list) / mean_p if mean_p > 0 else 0
+        
+        # درصد تغییر قیمت کل بازه
+        price_change = abs(prices_list[-1] - prices_list[0]) / prices_list[0] if prices_list[0] > 0 else 0
+        
+        # مقادیر آستانه برای نوسان و قدرت روند
+        vol_threshold = 0.0015   # 0.15% انحراف معیار
+        trend_threshold = 0.003  # 0.3% تغییر قیمت
+        
+        is_high_vol = std_p > vol_threshold
+        is_strong_trend = price_change > trend_threshold
+        
+        if is_strong_trend and not is_high_vol:
+            return "stable_trend"
+        elif is_high_vol and not is_strong_trend:
+            return "choppy_range"
+        elif is_high_vol and is_strong_trend:
+            return "extreme_breakout"
+        else:
+            return "default"
+
+    def get_adaptive_weights(self, symbol: str, current_price: Optional[float] = None, now_sec: Optional[float] = None) -> Dict[str, float]:
+        """
+        محاسبه داینامیک وزن‌های Ensemble بر اساس عملکرد تاریخی مدل‌ها در ۱۴ تا ۳۰ روز گذشته
+        و اعمال ضرایب تشویقی/تنبیهی بر اساس رژیم فعلی بازار و تخصص ذاتی هر یک از مدل‌های سه‌گانه.
+        """
+        # تلاش برای بارگذاری وزن‌های پیش‌فرض اولیه از فایل پیکربندی نماد
+        symbol_clean = symbol.split('/')[0].lower()
+        config_path = os.path.join("models", f"config_{symbol_clean}.json")
+        default_weights = {"ppo": 0.50, "sac": 0.30, "td3": 0.20}
+        
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    default_weights["ppo"] = cfg.get("ppo_weight", default_weights["ppo"])
+                    default_weights["sac"] = cfg.get("sac_weight", default_weights["sac"])
+                    default_weights["td3"] = cfg.get("td3_weight", default_weights["td3"])
+            except Exception as e:
+                logger.error(f"⚠️ Error reading default weights from config: {e}")
+        
+        # اعمال تنظیمات رژیم بازار در صورت ارسال قیمت و زمان لایو
+        if current_price is not None and now_sec is not None:
+            regime = self._detect_market_regime(symbol, current_price, now_sec)
+            if regime == "stable_trend":
+                # تقویت مدل محافظه‌کار PPO در جهت ترندهای باثبات
+                default_weights["ppo"] *= 1.4
+                default_weights["sac"] *= 0.8
+                default_weights["td3"] *= 0.8
+            elif regime == "choppy_range":
+                # تقویت مدل نوسان‌گیر SAC در بازارهای بدون ترند و نوسانی
+                default_weights["ppo"] *= 0.6
+                default_weights["sac"] *= 1.5
+                default_weights["td3"] *= 0.8
+            elif regime == "extreme_breakout":
+                # تقویت مدل TD3 در جهت جهش‌ها و ریزش‌های ناگهانی بازار
+                default_weights["ppo"] *= 0.7
+                default_weights["sac"] *= 0.7
+                default_weights["td3"] *= 1.6
+                
+            # نرمال‌سازی مجدد وزن‌های پایه
+            sum_base = sum(default_weights.values())
+            for k in default_weights:
+                default_weights[k] /= sum_base
+
         signals = self.history.get("signals", [])
         if not signals:
             return default_weights
             
-        now_sec = time.time()
-        days_14_ago = now_sec - (14 * 24 * 3600)
+        now_time = now_sec if now_sec is not None else time.time()
+        days_14_ago = now_time - (14 * 24 * 3600)
         
         recent_trades = []
         for s in signals:
@@ -578,11 +745,24 @@ class PurePPOStrategy:
         if amount_usdt <= 5.0:  # حداقل حجم معامله ۵ تتر
             return
 
-        # ۲. محاسبه اهرم بر اساس درصد ریسک حساب و حد ضرر فعال
+        # ۲. بارگذاری پارامترهای BPS اختصاصی ارز در صورت وجود
+        symbol_clean = symbol.split('/')[0].lower()
+        config_path = os.path.join("models", f"config_{symbol_clean}.json")
+        tp_bps = Config.TAKE_PROFIT_BPS
+        sl_bps = Config.STOP_LOSS_BPS
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    tp_bps = cfg.get("take_profit_bps", tp_bps)
+                    sl_bps = cfg.get("stop_loss_bps", sl_bps)
+            except Exception as e:
+                logger.error(f"⚠️ Error reading take_profit/stop_loss from config: {e}")
+
         try:
-            sl_pct = Config.STOP_LOSS_BPS / 100.0  # حد ضرر به درصد (مثلا 0.1% برای 10 BPS)
+            sl_pct = sl_bps / 10000.0  # حد ضرر به درصد (مثلا 0.001 برای 10 BPS)
             # اهرم به گونه‌ای محاسبه می‌شود که ضربدر حد ضرر درصد ریسک مجاز را پوشش دهد
-            calculated_leverage = int(Config.YOYO_RISK_PCT / sl_pct)
+            calculated_leverage = int((Config.YOYO_RISK_PCT / 100.0) / sl_pct)
             if calculated_leverage <= 0:
                 calculated_leverage = Config.DEFAULT_LEVERAGE
         except Exception:
@@ -590,10 +770,10 @@ class PurePPOStrategy:
             
         leverage = min(max(calculated_leverage, 1), Config.MAX_LEVERAGE)
 
-        # ۳. محاسبه تارگت‌ها بر مبنای BPS تنظیم شده در پیکربندی پروژه
-        tp_ratio = Config.TAKE_PROFIT_BPS / 10000.0
-        sl_ratio = Config.STOP_LOSS_BPS / 10000.0
-        tp1_ratio = (Config.STOP_LOSS_BPS * 1.5) / 10000.0 # TP1 is 1.5x risk
+        # ۳. محاسبه تارگت‌ها بر مبنای BPS تنظیم شده
+        tp_ratio = tp_bps / 10000.0
+        sl_ratio = sl_bps / 10000.0
+        tp1_ratio = (sl_bps * 1.5) / 10000.0 # TP1 is 1.5x risk
 
         if side == "long":
             tp1 = price * (1 + tp1_ratio)

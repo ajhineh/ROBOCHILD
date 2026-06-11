@@ -39,3 +39,14 @@ Thumbs.db
 
 # Local Scratch/Temp Directories
 /scratch/
+
+# Large binaries, models, logs & workspace metadata
+*.zip
+*.pkl
+/wandb/
+/.gemini/
+/analysis/
+/plots/
+*.txt
+!requirements.txt
+.claude-skills.json
