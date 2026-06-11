@@ -420,6 +420,30 @@ def train_agent(
         print(f"[Agent Trainer] Model saved to {final_path}")
         print(f"[Agent Trainer] VecNormalize saved to {stats_path}")
 
+        # Check gate threshold for Explained Variance if PPO just finished
+        if algo_name == "ppo":
+            explained_var = None
+            if hasattr(model, "logger") and model.logger is not None:
+                explained_var = model.logger.name_to_value.get("train/explained_variance")
+            
+            min_ev = config_data.get("min_explained_variance_for_sac", -2.0)
+            if explained_var is not None:
+                print(f"[Agent Trainer] PPO Explained Variance at end of training: {explained_var:.4f}")
+                if explained_var < min_ev:
+                    print(f"[Agent Trainer] ❌ PPO Explained Variance ({explained_var:.4f}) is below target threshold ({min_ev}). Skipping SAC and TD3 training phases as recommended.")
+                    try:
+                        with open(unified_progress_file, "w") as f:
+                            json.dump({
+                                "model_name": model_name,
+                                "current_step": total_timesteps,
+                                "total_steps": total_timesteps,
+                                "percentage": 100.0,
+                                "status": "completed (PPO only, SAC/TD3 skipped due to low Explained Variance)"
+                            }, f)
+                    except Exception:
+                        pass
+                    break
+
     # Complete the progress file at the end of all phases
     try:
         with open(unified_progress_file, "w") as f:

@@ -42,6 +42,16 @@ class FuturesTradingEnv(gym.Env):
         # Frame stacking configurations
         from collections import deque
         self.n_stack = 10
+        if self.symbol:
+            config_path = f"models/config_{self.symbol.lower()}.json"
+            import os, json
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                        self.n_stack = cfg.get("frame_stack", 10)
+                except Exception:
+                    pass
         self.obs_history = deque(maxlen=self.n_stack)
         
         # Action space: target inventory ratio in [-1.0, 1.0] (1.0 = Max Long, -1.0 = Max Short, 0.0 = Flat)
@@ -83,6 +93,17 @@ class FuturesTradingEnv(gym.Env):
         self.trade_steps = 0
         self.max_holding_steps = 48  # 4 hours if 5-min candles
         self.live_prices = []
+        self.time_barrier_penalty = 0.2
+        if self.symbol:
+            config_path = f"models/config_{self.symbol.lower()}.json"
+            import os, json
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                        self.time_barrier_penalty = cfg.get("time_barrier_penalty", 0.2)
+                except Exception:
+                    pass
         
         
     def _preprocess_data(self):
@@ -369,7 +390,7 @@ class FuturesTradingEnv(gym.Env):
             elif barrier_hit == "SL":
                 reward = -2.0 + (pnl_pct * 100.0) - fee_pct
             elif barrier_hit == "Time":
-                reward = (pnl_pct * 100.0) - 0.2 - fee_pct
+                reward = (pnl_pct * 100.0) - self.time_barrier_penalty - fee_pct
             elif abs(prev_position) > 1e-8 and abs(self.position) < 1e-8:
                 # خروج دستی اختیاری توسط خود مدل عصبی
                 reward = (pnl_pct * 100.0) - fee_pct
