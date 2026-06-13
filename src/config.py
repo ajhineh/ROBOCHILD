@@ -89,13 +89,13 @@ class Config:
     MAX_DRAWDOWN_LIMIT_USDT: float = 100.0
     INITIAL_BALANCE: float = 10000.0
     CURRENT_BALANCE: float = 10000.0
-    TRADE_CAPITAL_PCT: float = 25.0
+    TRADE_CAPITAL_PCT: float = 10.0
     TP1_EXIT_PCT: float = 50.0
     USE_ONLY_PPO: bool = False
     USE_YOYO_STRATEGY: bool = True
     YOYO_RISK_PCT: float = 1.0
-    DEFAULT_LEVERAGE: int = 15
-    MAX_LEVERAGE: int = 25
+    DEFAULT_LEVERAGE: int = 5
+    MAX_LEVERAGE: int = 10
     BYPASSED_FILTERS: str = ""
     BYPASSED_FILTERS_SET: set = set()
     SCREENER_ENABLED: bool = True  # فعال/غیرفعال بودن جستجوگر آلت‌کوین‌ها

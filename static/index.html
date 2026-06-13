@@ -1083,9 +1083,12 @@
                     
                     <div class="form-group" style="margin-top: 12px;">
                         <label>انتخاب جفت ارز جهت آموزش و تنظیم پارامترها</label>
-                        <select id="train-symbol-select" class="form-control" onchange="loadSymbolConfig()" style="background: #14132a; color: #ffffff; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px;">
-                            <!-- Filled dynamically -->
-                        </select>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <select id="train-symbol-select" class="form-control" onchange="loadSymbolConfig()" style="width: 33.33%; background: #14132a; color: #ffffff; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px;">
+                                <!-- Filled dynamically -->
+                            </select>
+                            <button onclick="addCardToTradingWindow()" class="nav-btn" style="margin: 0; padding: 0 16px; background: var(--accent-cyan); color: var(--bg-dark); font-weight: bold; border-radius: 4px; border: none; cursor: pointer; height: 38px; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 4px;">افزودن کارت به پنجره معاملاتی</button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>تعداد کل گام‌های تخصیص یافته به دوره یادگیری (Train Steps)</label>
@@ -2350,6 +2353,7 @@
                 }
 
                 // 5. Update Trained Models chips
+                window.availableModels = data.available_models || [];
                 const trainedGrid = document.getElementById("trained-models-grid");
                 const selectEl = document.getElementById("analysis-symbol-select");
                 if (data.available_models && data.available_models.length > 0) {
@@ -2610,13 +2614,13 @@
                 return;
             }
 
-            // تاییدیه شروع آموزش جهت جلوگیری از حذف اشتباهی
-            if (resume) {
-                const conf = confirm(`🔄 شما در حال از سرگیری و ادامه‌ی آموزش مدل موجود برای ${symbol} هستید.\n\nتغییرات روی فایل‌های قبلی اعمال و ارتقا می‌یابند. آیا مطمئن هستید؟`);
-                if (!conf) return;
-            } else {
-                const conf = confirm(`⚠️ توجه: شما در حال شروع آموزش از ابتدا (Start from Scratch) برای ${symbol} هستید!\n\nاین کار باعث حذف کامل و جایگزینی مدل آموزش‌دیده‌ی قبلی خواهد شد.\n\nآیا مطمئن هستید که می‌خواهید مدل قبلی حذف و آموزش از صفر شروع شود؟`);
-                if (!conf) return;
+            // تاییدیه شروع آموزش جهت جلوگیری از حذف اشتباهی و تایید وضعیت انتخاب شده
+            const statusMessage = resume 
+                ? `🔄 تاییدیه ادامه آموزش!\nوضعیت انتخاب شده: [✅ ادامه و ارتقای آموزش مدل قبلی]\n\nتوضیح: مدل قبلی شما حفظ شده و آموزش روی همان مدل ادامه می‌یابد.\n\nآیا از ادامه آموزش مدل قبلی اطمینان دارید؟`
+                : `⚠️ هشدار عملیات حساس!\nوضعیت انتخاب شده: [❌ حذف مدل قبلی و شروع آموزش از صفر]\n\nتوضیح: شما گزینه 'از سرگیری آموزش' را روشن نکرده‌اید. این کار باعث پاک شدن کامل مدل قبلی این جفت ارز شده و آموزش جدید از صفر شروع می‌شود.\n\nآیا کاملاً مطمئن هستید که می‌خواهید مدل قبلی حذف شود و آموزش جدید (با ساختار فریم‌های ۸ تایی) آغاز گردد؟`;
+            
+            if (!confirm(statusMessage)) {
+                return;
             }
 
             // خواندن پارامترهای پیشرفته هوش مصنوعی
@@ -4036,6 +4040,42 @@
                 }
             } catch (err) {
                 showToast("خطا در ارتباط با سرور برای اعتبارسنجی جفت ارز.", true);
+            }
+        }
+
+        // Add selected symbol to trading window (active trading symbols list)
+        async function addCardToTradingWindow() {
+            const select = document.getElementById("train-symbol-select");
+            if (!select || !select.value) {
+                showToast("ابتدا جفت ارز مورد نظر را انتخاب یا اضافه کنید.", true);
+                return;
+            }
+            const symbol = select.value.trim();
+            const cleanSym = symbol.split(':')[0]; // e.g. SOL/USDT
+
+            // بررسی وجود مدل آموزش‌دیده
+            const models = window.availableModels || [];
+            if (!models.includes(cleanSym)) {
+                alert(`⚠️ مدل آموزش‌دیده برای جفت ارز ${cleanSym} یافت نشد!\n\nلطفاً ابتدا فرآیند آموزش را برای این جفت ارز اجرا کنید تا مدل آن ساخته شود.`);
+                return;
+            }
+
+            try {
+                showToast(`در حال افزودن جفت ارز ${symbol} به پنجره معاملاتی...`);
+                const response = await fetch(`${API_BASE}/api/add_symbol`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol, resume: true, only_activate: true })
+                });
+                const res = await response.json();
+                if (res.success) {
+                    showToast(res.message);
+                    updateStatus();
+                } else {
+                    showToast(res.message, true);
+                }
+            } catch (err) {
+                showToast("خطا در افزودن جفت ارز به پنجره معاملاتی.", true);
             }
         }
 

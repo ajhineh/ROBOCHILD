@@ -189,6 +189,7 @@ def handle_api_add_symbol(handler, body, global_engine, global_executor, global_
     symbol = re.sub(r'[^a-zA-Z0-9/:-]', '', symbol)
     resume = bool(body.get("resume", False))
     learning_rate = body.get("learning_rate", "linear_0.0003")
+    only_activate = bool(body.get("only_activate", False))
 
     if not symbol:
         handler.send_json({"success": False, "message": "ارز نامشخص است"}, 400)
@@ -280,9 +281,9 @@ def handle_api_add_symbol(handler, body, global_engine, global_executor, global_
     if not os.path.exists(model_file):
         model_file = f"models/ppo_volume_bars_child_{symbol_clean}_final.zip"
 
-    # فقط در صورتی که دکمه از سرگیری (resume) روشن باشد، بررسی می‌کنیم مدل از قبل وجود دارد یا خیر تا فعالش کنیم.
-    # در غیر این صورت (وقتی resume غیرفعال است)، مستقیماً از ابتدا آموزش را شروع می‌کنیم حتی اگر فایلی مانده باشد.
-    if resume and os.path.exists(model_file):
+    # فقط در صورتی که دکمه از سرگیری (resume) یا درخواست فعال‌سازی سریع (only_activate) روشن باشد، بررسی می‌کنیم مدل از قبل وجود دارد یا خیر تا فعالش کنیم.
+    # در غیر این صورت (وقتی هیچ کدام از این‌ها نباشد)، مستقیماً از ابتدا آموزش را شروع می‌کنیم حتی اگر فایلی مانده باشد.
+    if (resume or only_activate) and os.path.exists(model_file):
         # اتصال اولیه به سیستم ترید زنده در صورت عدم وجود
         is_already_trading = symbol in Config.SYMBOLS
         if not is_already_trading:
@@ -321,6 +322,13 @@ def handle_api_add_symbol(handler, body, global_engine, global_executor, global_
             
             log_event(f"مدل هوش مصنوعی یافت شد! جفت ارز {symbol} به سیستم ترید زنده متصل شد.")
 
+        if only_activate:
+            handler.send_json({
+                "success": True,
+                "message": f"مدل هوش مصنوعی یافت شد! جفت ارز {symbol} با موفقیت به پنجره معاملاتی متصل شد."
+            })
+            return
+
         # همزمان آموزش را نیز از سر می‌گیریم
         steps = int(body.get("steps", 200000))
         log_event(f"🔄 درخواست از سرگیری (Fine-tune) مدل {symbol} با {steps:,} گام جدید و نرخ یادگیری {learning_rate}...")
@@ -339,6 +347,12 @@ def handle_api_add_symbol(handler, body, global_engine, global_executor, global_
             "message": msg
         })
     else:
+        if only_activate:
+            handler.send_json({
+                "success": False,
+                "message": f"مدل آموزش‌دیده برای {symbol} یافت نشد. لطفاً ابتدا آن را آموزش دهید."
+            }, 400)
+            return
         steps = int(body.get("steps", 200000))
         if resume:
             log_event(f"🔄 درخواست از سرگیری (Fine-tune) مدل {symbol} با {steps:,} گام جدید و نرخ یادگیری {learning_rate}...")

@@ -400,11 +400,20 @@ class PurePPOStrategy:
         )
 
         # مقداردهی به بافر فریم‌ها (Frame Stacking)
-        if symbol not in self.obs_history:
-            self.obs_history[symbol] = deque(maxlen=10)
+        # تشخیص خودکار تعداد فریم‌ها بر اساس مدل لود شده جهت جلوگیری از ناسازگاری ابعاد
+        stack_size = 10
+        models_dict = self.models.get(symbol)
+        if isinstance(models_dict, dict):
+            ppo_model, _ = models_dict.get("ppo", (None, None))
+            if ppo_model is not None and hasattr(ppo_model, "observation_space"):
+                obs_shape = ppo_model.observation_space.shape[0]
+                stack_size = obs_shape // 12
+
+        if symbol not in self.obs_history or self.obs_history[symbol].maxlen != stack_size:
+            self.obs_history[symbol] = deque(maxlen=stack_size)
             
         if len(self.obs_history[symbol]) == 0:
-            for _ in range(10):
+            for _ in range(stack_size):
                 self.obs_history[symbol].append(obs)
         else:
             self.obs_history[symbol].append(obs)
