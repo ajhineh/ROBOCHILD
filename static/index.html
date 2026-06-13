@@ -2610,6 +2610,15 @@
                 return;
             }
 
+            // تاییدیه شروع آموزش جهت جلوگیری از حذف اشتباهی
+            if (resume) {
+                const conf = confirm(`🔄 شما در حال از سرگیری و ادامه‌ی آموزش مدل موجود برای ${symbol} هستید.\n\nتغییرات روی فایل‌های قبلی اعمال و ارتقا می‌یابند. آیا مطمئن هستید؟`);
+                if (!conf) return;
+            } else {
+                const conf = confirm(`⚠️ توجه: شما در حال شروع آموزش از ابتدا (Start from Scratch) برای ${symbol} هستید!\n\nاین کار باعث حذف کامل و جایگزینی مدل آموزش‌دیده‌ی قبلی خواهد شد.\n\nآیا مطمئن هستید که می‌خواهید مدل قبلی حذف و آموزش از صفر شروع شود؟`);
+                if (!conf) return;
+            }
+
             // خواندن پارامترهای پیشرفته هوش مصنوعی
             const vfCoef = parseFloat(document.getElementById("train-vf-coef").value);
             const nSteps = parseInt(document.getElementById("train-n-steps").value);

@@ -1,0 +1,48 @@
+name: robochild-sol-hyperparameter-sweep
+program: train_with_sweep.py
+command:
+  - ${env}
+  - venv/bin/python
+  - ${program}
+  - ${args}
+method: bayes
+metric:
+  name: train/explained_variance
+  goal: maximize
+parameters:
+  learning_rate:
+    values: ["linear_0.0003", "linear_0.00015", "constant_0.0003", "constant_0.00015"]
+  n_steps:
+    values: [1024, 2048, 4096]
+  batch_size:
+    values: [64, 128, 256]
+  gamma:
+    values: [0.985, 0.99]
+  gae_lambda:
+    values: [0.92, 0.95, 0.98]
+  vf_coef:
+    values: [0.8, 1.0, 1.2]
+  ent_coef:
+    values: [0.01, 0.02, 0.03]
+  clip_range:
+    values: [0.2, 0.25, 0.3]
+  ppo_weight:
+    values: [0.4, 0.5, 0.6]
+  sac_weight:
+    values: [0.2, 0.3, 0.4]
+  td3_weight:
+    values: [0.1, 0.2, 0.3]
+  early_stopping_patience:
+    values: [4, 6, 8]
+  eval_freq:
+    values: [3000, 4000, 5000]
+  ensemble_threshold:
+    values: [0.60, 0.62, 0.65]
+  take_profit_bps:
+    values: [25, 30, 35, 40]
+  stop_loss_bps:
+    values: [10, 12, 15, 20]
+  net_arch_size:
+    values: ["small", "medium"]
+  lstm_hidden_size:
+    values: [128, 256]

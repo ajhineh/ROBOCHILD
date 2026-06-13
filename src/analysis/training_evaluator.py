@@ -229,6 +229,8 @@ class UltraEnsembleEvaluator:
         current_trade_entry = 0.0
         
         trade_records_list = []
+        detailed_trades = []
+        current_trade_info = {}
         in_trade = False
         trade_entry_portfolio_value = 0.0
         
@@ -431,6 +433,12 @@ class UltraEnsembleEvaluator:
                 # ورود به معامله جدید
                 in_trade = True
                 trade_entry_portfolio_value = portfolio_history[-1]
+                current_trade_info = {
+                    "entry_step": env.current_step,
+                    "entry_price": current_trade_entry,
+                    "type": "LONG" if current_position > 0 else "SHORT",
+                    "entry_portfolio_value": trade_entry_portfolio_value
+                }
             elif in_trade:
                 # خروج کامل یا معکوس شدن معامله
                 if abs(current_position) < 1e-8:
@@ -438,12 +446,35 @@ class UltraEnsembleEvaluator:
                     trade_records_list.append(trade_pnl)
                     in_trade = False
                     num_trades += 1
+                    if current_trade_info:
+                        current_trade_info.update({
+                            "exit_step": env.current_step,
+                            "exit_price": env.df.iloc[env.current_step]["mid_price"],
+                            "pnl_pct": trade_pnl * 100.0,
+                            "pnl_usdt": current_portfolio_value - trade_entry_portfolio_value
+                        })
+                        detailed_trades.append(current_trade_info)
+                        current_trade_info = {}
                 elif prev_position * current_position < 0:
                     trade_pnl = (current_portfolio_value - trade_entry_portfolio_value) / trade_entry_portfolio_value
                     trade_records_list.append(trade_pnl)
                     num_trades += 1
+                    if current_trade_info:
+                        current_trade_info.update({
+                            "exit_step": env.current_step,
+                            "exit_price": env.df.iloc[env.current_step]["mid_price"],
+                            "pnl_pct": trade_pnl * 100.0,
+                            "pnl_usdt": current_portfolio_value - trade_entry_portfolio_value
+                        })
+                        detailed_trades.append(current_trade_info)
                     # بلافاصله معامله معکوس را شروع کن
                     trade_entry_portfolio_value = current_portfolio_value
+                    current_trade_info = {
+                        "entry_step": env.current_step,
+                        "entry_price": current_trade_entry,
+                        "type": "LONG" if current_position > 0 else "SHORT",
+                        "entry_portfolio_value": trade_entry_portfolio_value
+                    }
             
             portfolio_value = env.portfolio_value
             portfolio_history.append(portfolio_value)
@@ -458,6 +489,14 @@ class UltraEnsembleEvaluator:
             trade_pnl = (env.portfolio_value - trade_entry_portfolio_value) / trade_entry_portfolio_value
             trade_records_list.append(trade_pnl)
             num_trades += 1
+            if current_trade_info:
+                current_trade_info.update({
+                    "exit_step": env.current_step,
+                    "exit_price": env.df.iloc[-1]["mid_price"],
+                    "pnl_pct": trade_pnl * 100.0,
+                    "pnl_usdt": env.portfolio_value - trade_entry_portfolio_value
+                })
+                detailed_trades.append(current_trade_info)
 
         returns = np.array(returns)
         cum_returns = np.array(portfolio_history) / portfolio_history[0] - 1
@@ -504,7 +543,8 @@ class UltraEnsembleEvaluator:
             "portfolio_history": portfolio_history,
             "actions": actions,
             "num_trades": num_trades,
-            "active_steps": len(active_returns)
+            "active_steps": len(active_returns),
+            "detailed_trades": detailed_trades
         }
 
     def parse_tensorboard_logs(self) -> dict:
@@ -948,7 +988,7 @@ class UltraEnsembleEvaluator:
                 
                 wandb_run = wandb.init(
                     entity=os.getenv("WANDB_ENTITY", "ROBOCHILD"),
-                    project=f"robochild-{self.symbol}",
+                    project=os.getenv("WANDB_PROJECT", f"robochild-{self.symbol}"),
                     name=f"evaluation_{self.symbol}_backtest",
                     config={
                         "symbol": self.symbol,
@@ -961,7 +1001,8 @@ class UltraEnsembleEvaluator:
                     notes=f"Backtest evaluation run for ensemble model of {self.symbol}."
                 )
                 
-                wandb.log({
+                # 1. Standard metrics
+                wandb_metrics = {
                     "total_return": backtest_res["total_return"],
                     "sharpe_ratio": backtest_res["sharpe_ratio"],
                     "sortino_ratio": backtest_res["sortino_ratio"],
@@ -969,10 +1010,90 @@ class UltraEnsembleEvaluator:
                     "win_rate": backtest_res["win_rate"],
                     "profit_factor": backtest_res["profit_factor"],
                     "calmar_ratio": backtest_res["calmar_ratio"]
-                })
+                }
+                
+                # 2. Log trades Table
+                detailed_trades = backtest_res.get("detailed_trades", [])
+                if len(detailed_trades) > 0:
+                    columns = ["Trade Index", "Type", "Entry Step", "Exit Step", "Entry Price", "Exit Price", "PnL %", "PnL USDT"]
+                    data = []
+                    for idx, t in enumerate(detailed_trades):
+                        data.append([
+                            idx + 1,
+                            t.get("type", "N/A"),
+                            t.get("entry_step", 0),
+                            t.get("exit_step", 0),
+                            float(t.get("entry_price", 0.0)),
+                            float(t.get("exit_price", 0.0)),
+                            float(t.get("pnl_pct", 0.0)),
+                            float(t.get("pnl_usdt", 0.0))
+                        ])
+                    trades_table = wandb.Table(columns=columns, data=data)
+                    wandb_metrics["backtest/detailed_trades_table"] = trades_table
+                
+                # 3. Log Plotly charts
+                try:
+                    import plotly.graph_objects as go
+                    
+                    # Equity Curve Trace
+                    fig_equity = go.Figure()
+                    fig_equity.add_trace(go.Scatter(y=backtest_res["portfolio_history"], mode='lines', name='Equity Curve'))
+                    fig_equity.update_layout(title="Equity Curve Progression", xaxis_title="Steps", yaxis_title="Portfolio Value (USDT)")
+                    wandb_metrics["backtest/plotly_equity_curve"] = fig_equity
+                    
+                    # Drawdown Curve Trace
+                    peaks = np.maximum.accumulate(backtest_res["portfolio_history"])
+                    dds = (peaks - backtest_res["portfolio_history"]) / peaks * 100.0
+                    fig_dd = go.Figure()
+                    fig_dd.add_trace(go.Scatter(y=dds, mode='lines', name='Drawdown %', line=dict(color='red')))
+                    fig_dd.update_layout(title="Drawdown Progression", xaxis_title="Steps", yaxis_title="Drawdown %")
+                    wandb_metrics["backtest/plotly_drawdown_curve"] = fig_dd
+                    
+                    # Action Histogram Trace
+                    actions_list = backtest_res.get("actions", [])
+                    if len(actions_list) > 0:
+                        fig_act = go.Figure()
+                        fig_act.add_trace(go.Histogram(x=actions_list, name='Action Distribution'))
+                        fig_act.update_layout(title="Action Distribution Histogram", xaxis_title="Action Value", yaxis_title="Count")
+                        wandb_metrics["backtest/plotly_action_histogram"] = fig_act
+                except Exception as plotly_err:
+                    self.log(f"⚠️ خطای Plotly در تولید نمودارهای تعاملی: {plotly_err}")
+                
+                # Log everything to WandB
+                wandb.log(wandb_metrics)
+                
+                # 4. Generate Auto Evaluation Report Artifact
+                try:
+                    report_content = f"""# SOL Backtest Evaluation Report
+- **Date**: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}
+- **Symbol**: {self.symbol.upper()}
+- **Model Project**: {os.getenv("WANDB_PROJECT", "ROBOCHILD-SOL")}
+- **Total Return**: {backtest_res['total_return'] * 100.0:.2f}%
+- **Sharpe Ratio**: {backtest_res['sharpe_ratio']:.4f}
+- **Sortino Ratio**: {backtest_res['sortino_ratio']:.4f}
+- **Max Drawdown**: {backtest_res['max_drawdown'] * 100.0:.2f}%
+- **Win Rate**: {backtest_res['win_rate'] * 100.0:.1f}%
+- **Profit Factor**: {backtest_res['profit_factor']:.2f}
+- **Calmar Ratio**: {backtest_res['calmar_ratio']:.4f}
+- **Num Trades**: {backtest_res['num_trades']}
+- **Active Steps**: {backtest_res['active_steps']}
+"""
+                    report_file = self.analysis_dir / f"wandb_report_{self.symbol}.md"
+                    with open(report_file, "w", encoding="utf-8") as f:
+                        f.write(report_content)
+                    
+                    rep_artifact = wandb.Artifact(
+                        name=f"report_{self.symbol}", 
+                        type="report", 
+                        description=f"Evaluation backtest report for {self.symbol}."
+                    )
+                    rep_artifact.add_file(str(report_file), name=f"wandb_report_{self.symbol}.md")
+                    wandb_run.log_artifact(rep_artifact)
+                except Exception as rep_err:
+                    self.log(f"⚠️ خطای تولید گزارش متنی در WandB: {rep_err}")
                 
                 wandb.run.finish()
-                self.log("📊 شاخص‌های عملکرد مالی بک‌تست با موفقیت در WandB لاگ شد.")
+                self.log("📊 شاخص‌ها، جدول معاملات، نمودارهای Plotly و گزارش متنی با موفقیت به WandB ارسال شد.")
             except Exception as w_err:
                 self.log(f"⚠️ خطا در لاگ کردن نتایج بک‌تست به WandB: {w_err}")
 
